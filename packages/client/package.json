@@ -1,0 +1,22 @@
+{
+  "name": "@void-place/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@void-place/shared": "*",
+    "pixi.js": "^8.1.5",
+    "rbush": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/rbush": "^3.0.3",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  }
+}

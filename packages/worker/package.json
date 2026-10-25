@@ -1,0 +1,18 @@
+{
+  "name": "@void-place/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@void-place/shared": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240505.0",
+    "typescript": "^5.4.5",
+    "wrangler": "^3.57.0"
+  }
+}
