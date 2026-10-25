@@ -18,7 +18,7 @@ syncManager = new SectorSyncManager((element) => {
 function onViewportChanged(): void {
   renderer.render();
   hud.update();
-  syncManager.updateVisibleSectors(viewport.getVisibleSectors());
+  syncManager.updateActiveSector(viewport.getCurrentCenterSector());
 }
 
 const hud = new HUDController(viewport, (target) => {
