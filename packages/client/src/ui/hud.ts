@@ -82,16 +82,26 @@ export class HUDController {
 
   public update(): void {
     if (this.coordsEl) {
-      this.coordsEl.innerText = `x: ${Math.round(this.viewport.x)} | y: ${Math.round(this.viewport.y)} | zoom: ${this.viewport.zoom.toFixed(2)}x`;
+      const xStr = (this.viewport.x >= 0 ? '+' : '') + this.viewport.x.toFixed(1);
+      const yStr = (this.viewport.y >= 0 ? '+' : '') + this.viewport.y.toFixed(1);
+      const zoomStr = this.viewport.zoom < 0.1
+        ? `10^${Math.round(Math.log10(this.viewport.zoom))}x`
+        : `${this.viewport.zoom.toFixed(2)}x`;
+      this.coordsEl.innerText = `X: ${xStr} · Y: ${yStr} · MAG: ${zoomStr}`;
     }
     if (this.sectorEl) {
-      this.sectorEl.innerText = `Sector: ${this.viewport.getCurrentCenterSector()}`;
+      this.sectorEl.innerText = `SECTOR // ${this.viewport.getCurrentCenterSector()}`;
     }
 
     if (this.radarIcon && this.radarText) {
       const compass = this.viewport.getCompassToOrigin();
       this.radarIcon.innerText = compass.arrow;
-      this.radarText.innerText = compass.isAtOrigin ? 'At Origin (0,0)' : `Origin (${compass.formatted})`;
+      if (compass.isAtOrigin) {
+        this.radarText.innerText = 'SINGULARITY [0,0]';
+      } else {
+        const degPadded = compass.degrees.toString().padStart(3, '0');
+        this.radarText.innerText = `HDG ${degPadded}° · ${compass.formatted}`;
+      }
     }
   }
 
@@ -229,7 +239,7 @@ export class HUDController {
     // 5. Dive, Share & Origin
     this.diveBtn?.addEventListener('click', async () => {
       try {
-        this.diveBtn!.innerText = '🌀 Diving...';
+        this.diveBtn!.innerText = '⟁ WARPING...';
         const res = await fetch('/api/dive');
         if (res.ok) {
           const data: DiveTarget = await res.json();
@@ -238,7 +248,7 @@ export class HUDController {
       } catch (e) {
         console.error('Dive failed', e);
       } finally {
-        this.diveBtn!.innerText = '✨ Dive into Void';
+        this.diveBtn!.innerText = '[ ⟁ WARP DIVE ]';
       }
     });
 
@@ -246,9 +256,9 @@ export class HUDController {
       const url = this.viewport.getShareUrl();
       try {
         await navigator.clipboard.writeText(url);
-        this.showToast('🔗 Coordinates link copied to clipboard!');
+        this.showToast('VECTOR COORDINATES COPIED');
       } catch {
-        prompt('Copy this link to share your coordinates:', url);
+        prompt('Copy vector coordinates:', url);
       }
     });
 

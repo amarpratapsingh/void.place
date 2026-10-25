@@ -53,17 +53,20 @@ export class CanvasRenderer {
     const { width, height } = this.canvas;
     const ctx = this.ctx;
 
-    // Clear background
-    ctx.fillStyle = '#0d0f12';
+    // 1. Deep Abyssal Cosmic Void
+    ctx.fillStyle = '#040609';
     ctx.fillRect(0, 0, width, height);
 
-    // 1. Draw macro sector grid
+    // 2. Cosmic Background Parallax Stars & Nebula Dust
+    this.drawCosmicField(ctx, width, height);
+
+    // 3. Macro Coordinate Grids & Laser Crosshairs
     this.drawMacroGrid(ctx, width, height);
 
-    // 2. Draw Origin Landmark (The center monument)
-    this.drawOrigin(ctx);
+    // 4. The Singularity (Origin 0,0 Celestial Monument)
+    this.drawSingularity(ctx);
 
-    // 3. Draw elements (pixel batches & strokes)
+    // 5. Draw Canvas Elements (Pixel Batches & Strokes)
     for (const el of this.elements.values()) {
       if (el.type === 'pixel_batch') {
         this.drawPixelBatch(ctx, el as PixelBatchElement);
@@ -72,15 +75,47 @@ export class CanvasRenderer {
       }
     }
 
-    // 4. Draw Pixel-Art Grid (when zoomed into pixel scale)
+    // 6. High-zoom Pixel Alignment Grid
     if (this.showGrid) {
       this.drawPixelGrid(ctx, width, height);
     }
 
-    // 5. Draw active cursor hover pixel preview
+    // 7. Tactical Cursor Hover Indicator
     if (this.hoverPixel) {
       this.drawHoverIndicator(ctx, this.hoverPixel);
     }
+  }
+
+  /**
+   * Deterministic celestial starfield that glides with smooth parallax as you navigate the void.
+   */
+  private drawCosmicField(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+    const starSpacing = 160;
+    const startX = Math.floor((this.viewport.x * 0.2 - width / 2) / starSpacing) * starSpacing;
+    const endX = startX + width + starSpacing * 2;
+    const startY = Math.floor((this.viewport.y * 0.2 - height / 2) / starSpacing) * starSpacing;
+    const endY = startY + height + starSpacing * 2;
+
+    ctx.save();
+    for (let x = startX; x <= endX; x += starSpacing) {
+      for (let y = startY; y <= endY; y += starSpacing) {
+        // Pseudo-random star offset & luminance
+        const hash = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+        const rand = hash - Math.floor(hash);
+
+        if (rand > 0.45) {
+          const screenX = (x - this.viewport.x * 0.2) + width / 2;
+          const screenY = (y - this.viewport.y * 0.2) + height / 2;
+
+          const size = rand > 0.92 ? 1.5 : 1.0;
+          const alpha = rand > 0.85 ? 0.35 : 0.15;
+
+          ctx.fillStyle = rand > 0.8 ? `rgba(0, 240, 255, ${alpha})` : `rgba(255, 200, 120, ${alpha})`;
+          ctx.fillRect(Math.floor(screenX), Math.floor(screenY), size, size);
+        }
+      }
+    }
+    ctx.restore();
   }
 
   /**
@@ -121,9 +156,6 @@ export class CanvasRenderer {
     return modified;
   }
 
-  /**
-   * Draws a pixel batch as crisp integer-aligned rectangles.
-   */
   private drawPixelBatch(ctx: CanvasRenderingContext2D, el: PixelBatchElement): void {
     for (let i = 0; i < el.pixels.length; i++) {
       const p = el.pixels[i];
@@ -140,20 +172,15 @@ export class CanvasRenderer {
     }
   }
 
-  /**
-   * Pixel-level grid lines for Aseprite / r-place precision.
-   */
   private drawPixelGrid(ctx: CanvasRenderingContext2D, width: number, height: number): void {
-    if (this.viewport.zoom < 4) return; // Only show when zoomed in close
+    if (this.viewport.zoom < 3.5) return;
 
     const step = this.viewport.zoom;
-    if (step < 4) return;
-
     const startX = (width / 2 - this.viewport.x * this.viewport.zoom) % step;
     const startY = (height / 2 - this.viewport.y * this.viewport.zoom) % step;
 
     ctx.save();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.09)';
     ctx.lineWidth = 1;
 
     ctx.beginPath();
@@ -171,21 +198,18 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
-  /**
-   * Hover cursor preview highlighting the exact pixel cell that will be painted.
-   */
   private drawHoverIndicator(ctx: CanvasRenderingContext2D, hover: HoverPixelInfo): void {
     const screen = this.viewport.worldToScreen(hover.worldX, hover.worldY);
     const pixelSize = Math.max(2, hover.size * this.viewport.zoom);
 
     ctx.save();
     if (hover.isEraser) {
-      ctx.strokeStyle = '#ef4444';
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.25)';
+      ctx.strokeStyle = '#ff0055';
+      ctx.fillStyle = 'rgba(255, 0, 85, 0.25)';
     } else {
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.strokeStyle = '#00f0ff';
       ctx.fillStyle = hover.color;
-      ctx.globalAlpha = 0.6;
+      ctx.globalAlpha = 0.65;
     }
 
     ctx.lineWidth = 1;
@@ -204,61 +228,97 @@ export class CanvasRenderer {
       Math.ceil(pixelSize)
     );
 
+    // Corner targeting reticle ticks
+    const tLen = Math.max(3, Math.min(8, pixelSize * 0.3));
+    ctx.strokeStyle = hover.isEraser ? '#ff0055' : '#00f0ff';
+    ctx.lineWidth = 1.5;
+    const sx = Math.floor(screen.x);
+    const sy = Math.floor(screen.y);
+    const sz = Math.ceil(pixelSize);
+
+    ctx.beginPath();
+    // Top-left
+    ctx.moveTo(sx - 2, sy + tLen); ctx.lineTo(sx - 2, sy - 2); ctx.lineTo(sx + tLen, sy - 2);
+    // Top-right
+    ctx.moveTo(sx + sz + 2 - tLen, sy - 2); ctx.lineTo(sx + sz + 2, sy - 2); ctx.lineTo(sx + sz + 2, sy + tLen);
+    // Bottom-left
+    ctx.moveTo(sx - 2, sy + sz + 2 - tLen); ctx.lineTo(sx - 2, sy + sz + 2); ctx.lineTo(sx + tLen, sy + sz + 2);
+    // Bottom-right
+    ctx.moveTo(sx + sz + 2 - tLen, sy + sz + 2); ctx.lineTo(sx + sz + 2, sy + sz + 2); ctx.lineTo(sx + sz + 2, sy + sz + 2 - tLen);
+    ctx.stroke();
+
     ctx.restore();
   }
 
-  private drawOrigin(ctx: CanvasRenderingContext2D): void {
-    const originScreen = this.viewport.worldToScreen(0, 0);
-    const radius = 40 * this.viewport.zoom;
+  /**
+   * The Singularity (Origin 0,0 Celestial Monument).
+   */
+  private drawSingularity(ctx: CanvasRenderingContext2D): void {
+    const origin = this.viewport.worldToScreen(0, 0);
+    const radius = 50 * this.viewport.zoom;
 
     if (
-      originScreen.x < -radius * 2 ||
-      originScreen.x > this.canvas.width + radius * 2 ||
-      originScreen.y < -radius * 2 ||
-      originScreen.y > this.canvas.height + radius * 2
+      origin.x < -radius * 2 ||
+      origin.x > this.canvas.width + radius * 2 ||
+      origin.y < -radius * 2 ||
+      origin.y > this.canvas.height + radius * 2
     ) {
       return;
     }
 
     ctx.save();
-    ctx.translate(originScreen.x, originScreen.y);
+    ctx.translate(origin.x, origin.y);
 
-    // Outer glow ring
+    // 1. Accretion Disc Radial Glow
+    const gradient = ctx.createRadialGradient(0, 0, 2, 0, 0, Math.max(30, radius * 1.5));
+    gradient.addColorStop(0, 'rgba(0, 240, 255, 0.4)');
+    gradient.addColorStop(0.3, 'rgba(255, 176, 32, 0.15)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = gradient;
     ctx.beginPath();
-    ctx.arc(0, 0, Math.max(16, radius), 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(168, 85, 247, 0.4)';
-    ctx.lineWidth = Math.max(1, 2 * this.viewport.zoom);
-    ctx.setLineDash([6, 6]);
+    ctx.arc(0, 0, Math.max(30, radius * 1.5), 0, Math.PI * 2);
+    ctx.fill();
+
+    // 2. Outer Astrolabe Ring with Degree Ticks
+    ctx.beginPath();
+    ctx.arc(0, 0, Math.max(20, radius), 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 8]);
     ctx.stroke();
 
-    // Inner ring
+    // 3. Inner Pulsar Ring
     ctx.setLineDash([]);
     ctx.beginPath();
-    ctx.arc(0, 0, Math.max(8, radius * 0.5), 0, Math.PI * 2);
-    ctx.strokeStyle = '#38bdf8';
+    ctx.arc(0, 0, Math.max(10, radius * 0.5), 0, Math.PI * 2);
+    ctx.strokeStyle = '#ffb020';
     ctx.lineWidth = Math.max(1, 1.5 * this.viewport.zoom);
     ctx.stroke();
 
-    // Center pixel
-    ctx.fillStyle = '#ec4899';
-    ctx.fillRect(-3, -3, 6, 6);
+    // 4. Central Diamond Core
+    ctx.save();
+    ctx.rotate(Math.PI / 4);
+    ctx.fillStyle = '#00f0ff';
+    const coreSz = Math.max(4, 5 * this.viewport.zoom);
+    ctx.fillRect(-coreSz / 2, -coreSz / 2, coreSz, coreSz);
+    ctx.restore();
 
-    // Crosshairs
-    const arm = Math.max(24, radius * 1.4);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    // 5. Cardinal Coordinate Axes with Tickmarks
+    const arm = Math.max(32, radius * 1.8);
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.2)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(-arm, 0); ctx.lineTo(-radius * 0.7, 0);
-    ctx.moveTo(radius * 0.7, 0); ctx.lineTo(arm, 0);
-    ctx.moveTo(0, -arm); ctx.lineTo(0, -radius * 0.7);
-    ctx.moveTo(0, radius * 0.7); ctx.lineTo(0, arm);
+    ctx.moveTo(-arm, 0); ctx.lineTo(-radius * 0.6, 0);
+    ctx.moveTo(radius * 0.6, 0); ctx.lineTo(arm, 0);
+    ctx.moveTo(0, -arm); ctx.lineTo(0, -radius * 0.6);
+    ctx.moveTo(0, radius * 0.6); ctx.lineTo(arm, 0);
     ctx.stroke();
 
-    // Label
-    ctx.font = 'bold 11px monospace';
-    ctx.fillStyle = '#94a3b8';
+    // 6. Cybernetic Origin Label
+    ctx.font = '700 10px "Share Tech Mono", monospace';
+    ctx.fillStyle = '#00f0ff';
     ctx.textAlign = 'center';
-    ctx.fillText('ORIGIN (0,0)', 0, Math.max(28, radius + 18));
+    ctx.fillText('⌖ SINGULARITY [0, 0]', 0, Math.max(32, radius + 22));
 
     ctx.restore();
   }
@@ -271,7 +331,8 @@ export class CanvasRenderer {
     const offsetX = (width / 2 - this.viewport.x * this.viewport.zoom) % step;
     const offsetY = (height / 2 - this.viewport.y * this.viewport.zoom) % step;
 
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0, 240, 255, 0.025)';
     ctx.lineWidth = 1;
 
     ctx.beginPath();
@@ -284,6 +345,15 @@ export class CanvasRenderer {
       ctx.lineTo(width, y);
     }
     ctx.stroke();
+
+    // Subtle coordinate intersection tick marks
+    ctx.fillStyle = 'rgba(0, 240, 255, 0.12)';
+    for (let x = offsetX; x < width; x += step) {
+      for (let y = offsetY; y < height; y += step) {
+        ctx.fillRect(x - 1, y - 1, 3, 3);
+      }
+    }
+    ctx.restore();
   }
 
   private drawStroke(ctx: CanvasRenderingContext2D, el: StrokeElement): void {
@@ -291,7 +361,7 @@ export class CanvasRenderer {
 
     const start = this.viewport.worldToScreen(el.x + el.points[0], el.y + el.points[1]);
 
-    ctx.strokeStyle = el.color || '#38bdf8';
+    ctx.strokeStyle = el.color || '#00f0ff';
     ctx.lineWidth = Math.max(1, el.width * this.viewport.zoom);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -321,7 +391,7 @@ export class CanvasRenderer {
     const startY = this.viewport.y;
     const startZoom = this.viewport.zoom;
     const startTime = performance.now();
-    const duration = 1000;
+    const duration = 1200;
 
     const easeInOutCubic = (t: number) =>
       t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;

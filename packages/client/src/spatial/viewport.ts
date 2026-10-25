@@ -57,32 +57,33 @@ export class ViewportManager {
   /**
    * Calculates distance, angle, and directional arrow pointing towards Origin (0,0).
    */
-  public getCompassToOrigin(): { distance: number; formatted: string; arrow: string; isAtOrigin: boolean } {
+  public getCompassToOrigin(): { distance: number; formatted: string; arrow: string; isAtOrigin: boolean; degrees: number } {
     const { distance, angleRad } = getDistanceAndAngle(this.x, this.y, 0, 0);
+    const rawDeg = (angleRad * 180) / Math.PI;
+    const degrees = Math.round((rawDeg + 360) % 360);
 
     // If within close range of origin
     if (distance < 150 / this.zoom) {
-      return { distance, formatted: '0u', arrow: '🎯', isAtOrigin: true };
+      return { distance, formatted: '0u', arrow: '⌖', isAtOrigin: true, degrees };
     }
 
     // Convert angle to 8-point compass arrow
-    // angleRad: 0 = East, PI/2 = South, PI = West, -PI/2 = North
-    const deg = (angleRad * 180) / Math.PI;
     let arrow = '➔';
-    if (deg >= -22.5 && deg < 22.5) arrow = '→';
-    else if (deg >= 22.5 && deg < 67.5) arrow = '↘';
-    else if (deg >= 67.5 && deg < 112.5) arrow = '↓';
-    else if (deg >= 112.5 && deg < 157.5) arrow = '↙';
-    else if (deg >= 157.5 || deg < -157.5) arrow = '←';
-    else if (deg >= -157.5 && deg < -112.5) arrow = '↖';
-    else if (deg >= -112.5 && deg < -67.5) arrow = '↑';
-    else if (deg >= -67.5 && deg < -22.5) arrow = '↗';
+    if (rawDeg >= -22.5 && rawDeg < 22.5) arrow = '→';
+    else if (rawDeg >= 22.5 && rawDeg < 67.5) arrow = '↘';
+    else if (rawDeg >= 67.5 && rawDeg < 112.5) arrow = '↓';
+    else if (rawDeg >= 112.5 && rawDeg < 157.5) arrow = '↙';
+    else if (rawDeg >= 157.5 || rawDeg < -157.5) arrow = '←';
+    else if (rawDeg >= -157.5 && rawDeg < -112.5) arrow = '↖';
+    else if (rawDeg >= -112.5 && rawDeg < -67.5) arrow = '↑';
+    else if (rawDeg >= -67.5 && rawDeg < -22.5) arrow = '↗';
 
     return {
       distance,
       formatted: formatDistance(distance),
       arrow,
       isAtOrigin: false,
+      degrees,
     };
   }
 

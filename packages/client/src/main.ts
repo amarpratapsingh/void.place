@@ -29,13 +29,13 @@ hud = new HUDController(
     // Smooth hyperspace dive into coordinates
     const targetZoom = Math.pow(2, target.zoom);
     renderer.flyTo(target.x, target.y, targetZoom, onViewportChanged, () => {
-      hud.showToast(`✨ Arrived at ${target.description || 'uncharted sector'}`);
+      hud.showToast(`⌖ ARRIVED AT ${target.description ? target.description.toUpperCase() : 'UNCHARTED SECTOR'}`);
     });
   },
   () => {
-    // Return to Origin (0,0)
+    // Return to Singularity (0,0)
     renderer.flyTo(0, 0, 1.0, onViewportChanged, () => {
-      hud.showToast('🎯 Returned to Origin (0,0)');
+      hud.showToast('⌖ ANCHORED AT SINGULARITY [0,0]');
     });
   },
   (tool: ToolMode) => {
@@ -105,7 +105,7 @@ function paintPixel(snappedX: number, snappedY: number, size: number): void {
   // Ink cost: 0.35 ink per 1x1 pixel unit
   const cost = 0.35 * (size * size);
   if (!hud.consumeInk(cost)) {
-    hud.showToast('⚠️ Depleted ink reserves! Regenerating...');
+    hud.showToast('⚠️ VOID MATTER DEPLETED · REGENERATING...');
     return;
   }
 
