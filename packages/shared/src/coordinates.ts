@@ -62,3 +62,29 @@ export function getVisibleSectorKeys(viewport: Viewport): SectorKey[] {
 export function getTileStoragePath(zoom: number, x: number, y: number): string {
   return `tiles/${Math.floor(zoom)}/${x}/${y}.png`;
 }
+
+/**
+ * Calculates distance and angle (in radians) between two world coordinates.
+ */
+export function getDistanceAndAngle(
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number
+): { distance: number; angleRad: number } {
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const distance = Math.hypot(dx, dy);
+  const angleRad = Math.atan2(dy, dx);
+  return { distance, angleRad };
+}
+
+/**
+ * Formats world distance into human-readable compact notation (e.g. 850u, 12.4k u, 3.2M u).
+ */
+export function formatDistance(distance: number): string {
+  if (distance < 1000) return `${Math.round(distance)}u`;
+  if (distance < 1000000) return `${(distance / 1000).toFixed(1)}k u`;
+  return `${(distance / 1000000).toFixed(1)}M u`;
+}
+

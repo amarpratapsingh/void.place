@@ -8,40 +8,71 @@ const container = document.getElementById('canvas-container')!;
 const viewport = new ViewportManager();
 const renderer = new CanvasRenderer(container, viewport);
 
-let syncManager: SectorSyncManager;
-
-syncManager = new SectorSyncManager((element) => {
+const syncManager = new SectorSyncManager((element) => {
   renderer.addElement(element);
 });
 
-// Update HUD & sync sectors on viewport movement
+// Update HUD, URL hash, and real-time room sync
 function onViewportChanged(): void {
   renderer.render();
   hud.update();
+  viewport.queueUrlSync();
   syncManager.updateActiveSector(viewport.getCurrentCenterSector());
 }
 
-const hud = new HUDController(viewport, (target) => {
-  // Animate/jump to Dive coordinates
-  viewport.x = target.x;
-  viewport.y = target.y;
-  viewport.zoom = Math.pow(2, target.zoom);
-  onViewportChanged();
-});
+// HUD controller with hyperspace camera navigation
+const hud = new HUDController(
+  viewport,
+  (target) => {
+    // Smooth hyperspace dive into coordinates
+    const targetZoom = Math.pow(2, target.zoom);
+    renderer.flyTo(target.x, target.y, targetZoom, onViewportChanged, () => {
+      hud.showToast(`✨ Arrived at ${target.description || 'uncharted sector'}`);
+    });
+  },
+  () => {
+    // Return to Origin (0,0)
+    renderer.flyTo(0, 0, 1.0, onViewportChanged, () => {
+      hud.showToast('🎯 Returned to Origin (0,0)');
+    });
+  }
+);
 
-// User interactions: Pan, Zoom, and Draw
+// Continuous loop for smooth ink regeneration & rendering
+let lastTime = performance.now();
+function gameLoop(now: number): void {
+  const dt = (now - lastTime) / 1000;
+  lastTime = now;
+
+  hud.updateInk(dt);
+
+  requestAnimationFrame(gameLoop);
+}
+requestAnimationFrame(gameLoop);
+
+// User interactions: Pan, Zoom, and Ink-limited Drawing
 let isDragging = false;
 let isDrawing = false;
 let lastMouseX = 0;
 let lastMouseY = 0;
+let lastWorldX = 0;
+let lastWorldY = 0;
 let currentStroke: StrokeElement | null = null;
 
 window.addEventListener('mousedown', (e) => {
   if (e.button === 0) {
     if (e.shiftKey) {
-      // Draw mode with Shift + Click
+      // Check if user has sufficient ink to start a stroke
+      if (!hud.consumeInk(3)) {
+        hud.showToast('⚠️ Out of ink! Wait for reserves to regenerate.');
+        return;
+      }
+
       isDrawing = true;
       const world = viewport.screenToWorld(e.clientX, e.clientY);
+      lastWorldX = world.x;
+      lastWorldY = world.y;
+
       currentStroke = {
         id: crypto.randomUUID(),
         type: 'stroke',
@@ -74,10 +105,32 @@ window.addEventListener('mousemove', (e) => {
     onViewportChanged();
   } else if (isDrawing && currentStroke) {
     const world = viewport.screenToWorld(e.clientX, e.clientY);
-    const relX = world.x - currentStroke.x;
-    const relY = world.y - currentStroke.y;
-    currentStroke.points.push(relX, relY);
-    renderer.render();
+    const segDist = Math.hypot(world.x - lastWorldX, world.y - lastWorldY);
+
+    // Only add points if moved minimum world distance
+    const minThreshold = 2 / viewport.zoom;
+    if (segDist > minThreshold) {
+      // Calculate ink cost proportional to segment length
+      const cost = Math.max(0.2, (segDist * viewport.zoom) * 0.05);
+
+      if (!hud.consumeInk(cost)) {
+        // Out of ink! End current stroke
+        const sectorKey = viewport.getCurrentCenterSector();
+        syncManager.sendElement(sectorKey, currentStroke);
+        currentStroke = null;
+        isDrawing = false;
+        hud.showToast('⚠️ Depleted ink reserves! Regenerating...');
+        return;
+      }
+
+      const relX = world.x - currentStroke.x;
+      const relY = world.y - currentStroke.y;
+      currentStroke.points.push(relX, relY);
+
+      lastWorldX = world.x;
+      lastWorldY = world.y;
+      renderer.render();
+    }
   }
 });
 

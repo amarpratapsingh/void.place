@@ -1,4 +1,4 @@
-import { CanvasElement, SectorKey } from '@void-place/shared';
+import { CanvasElement, SectorKey, StrokeElement } from '@void-place/shared';
 
 export interface Env {
   SECTOR_ROOMS: DurableObjectNamespace;
@@ -6,10 +6,21 @@ export interface Env {
   DB: D1Database;
 }
 
+const MAX_ELEMENTS_PER_SECTOR = 1500;
+const MAX_STROKE_POINTS = 1000;
+const RATE_LIMIT_MAX_REQUESTS = 15;
+const RATE_LIMIT_WINDOW_MS = 5000;
+
+interface RateLimitState {
+  count: number;
+  windowStart: number;
+}
+
 export class SectorRoom implements DurableObject {
   private state: DurableObjectState;
   private env: Env;
   private sessions: Set<WebSocket> = new Set();
+  private sessionRateLimits: WeakMap<WebSocket, RateLimitState> = new WeakMap();
   private elements: Map<string, CanvasElement> = new Map();
   private sectorKey: SectorKey = '';
 
@@ -57,6 +68,7 @@ export class SectorRoom implements DurableObject {
   private handleSession(ws: WebSocket): void {
     ws.accept();
     this.sessions.add(ws);
+    this.sessionRateLimits.set(ws, { count: 0, windowStart: Date.now() });
 
     // Send initial sector state
     ws.send(
@@ -71,7 +83,29 @@ export class SectorRoom implements DurableObject {
         const msg = JSON.parse(event.data as string);
 
         if (msg.type === 'element:add') {
+          // 1. Anti-griefing: Rate limit check per session
+          if (!this.checkRateLimit(ws)) {
+            ws.send(
+              JSON.stringify({
+                type: 'error:ratelimit',
+                message: 'Rate limit exceeded. Slow down your strokes.',
+              })
+            );
+            return;
+          }
+
+          // 2. Anti-griefing: Validate element payload
           const element = msg.element as CanvasElement;
+          if (!this.isValidElement(element)) {
+            return;
+          }
+
+          // 3. Prevent memory exhaustion: prune oldest if beyond sector limit
+          if (this.elements.size >= MAX_ELEMENTS_PER_SECTOR) {
+            const oldestKey = this.elements.keys().next().value;
+            if (oldestKey) this.elements.delete(oldestKey);
+          }
+
           this.elements.set(element.id, element);
 
           // Broadcast to other peers in this sector
@@ -83,9 +117,9 @@ export class SectorRoom implements DurableObject {
             ws
           );
 
-          // Persist state periodically
+          // Persist state
           await this.state.storage.put('elements', Object.fromEntries(this.elements));
-          
+
           // Register sector activity in D1 for the Dive button
           await this.recordSectorActivity();
         }
@@ -101,6 +135,37 @@ export class SectorRoom implements DurableObject {
     ws.addEventListener('error', () => {
       this.sessions.delete(ws);
     });
+  }
+
+  private checkRateLimit(ws: WebSocket): boolean {
+    const now = Date.now();
+    let limit = this.sessionRateLimits.get(ws);
+    if (!limit) {
+      limit = { count: 0, windowStart: now };
+      this.sessionRateLimits.set(ws, limit);
+    }
+
+    if (now - limit.windowStart > RATE_LIMIT_WINDOW_MS) {
+      limit.count = 0;
+      limit.windowStart = now;
+    }
+
+    limit.count++;
+    return limit.count <= RATE_LIMIT_MAX_REQUESTS;
+  }
+
+  private isValidElement(element: CanvasElement): boolean {
+    if (!element || typeof element.id !== 'string' || !element.id) return false;
+    if (!Number.isFinite(element.x) || !Number.isFinite(element.y) || !Number.isFinite(element.zoom)) return false;
+
+    if (element.type === 'stroke') {
+      const stroke = element as StrokeElement;
+      if (!Array.isArray(stroke.points)) return false;
+      if (stroke.points.length < 2 || stroke.points.length > MAX_STROKE_POINTS) return false;
+      return true;
+    }
+
+    return true;
   }
 
   private broadcast(data: string, sender?: WebSocket): void {

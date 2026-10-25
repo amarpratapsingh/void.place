@@ -15,7 +15,7 @@
         width: 100%;
         height: 100%;
         overflow: hidden;
-        background-color: #0d0f12;
+        background-color: #0b0d10;
         color: #f0f3f6;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       }
@@ -43,38 +43,66 @@
         top: 20px;
         left: 20px;
         background: rgba(18, 22, 28, 0.85);
-        backdrop-filter: blur(8px);
+        backdrop-filter: blur(10px);
         padding: 12px 18px;
-        border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
         display: flex;
         flex-direction: column;
         gap: 6px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
       }
       .hud-top-right {
         position: absolute;
         top: 20px;
         right: 20px;
         display: flex;
-        gap: 12px;
+        gap: 10px;
+        align-items: center;
+      }
+      .btn {
+        border: none;
+        border-radius: 8px;
+        padding: 10px 16px;
+        font-weight: 600;
+        font-size: 13px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
       }
       .btn-dive {
         background: linear-gradient(135deg, #6366f1, #a855f7);
         color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 10px 20px;
-        font-weight: 600;
-        font-size: 14px;
-        cursor: pointer;
-        box-shadow: 0 4px 14px rgba(124, 58, 237, 0.4);
-        transition: transform 0.15s ease, box-shadow 0.15s ease;
+        box-shadow: 0 4px 14px rgba(124, 58, 237, 0.35);
       }
       .btn-dive:hover {
         transform: translateY(-1px);
-        box-shadow: 0 6px 20px rgba(124, 58, 237, 0.6);
+        box-shadow: 0 6px 20px rgba(124, 58, 237, 0.55);
       }
-      .btn-dive:active {
+      .btn-share {
+        background: rgba(255, 255, 255, 0.08);
+        color: #f1f5f9;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        backdrop-filter: blur(8px);
+      }
+      .btn-share:hover {
+        background: rgba(255, 255, 255, 0.15);
+        transform: translateY(-1px);
+      }
+      .btn-radar {
+        background: rgba(15, 23, 42, 0.85);
+        color: #38bdf8;
+        border: 1px solid rgba(56, 189, 248, 0.25);
+        backdrop-filter: blur(8px);
+        font-family: monospace;
+      }
+      .btn-radar:hover {
+        background: rgba(56, 189, 248, 0.15);
+        border-color: #38bdf8;
+      }
+      .btn:active {
         transform: translateY(1px);
       }
       .coords-display {
@@ -86,19 +114,112 @@
         font-size: 11px;
         color: #38bdf8;
       }
+
+      /* Ink Gauge at bottom center */
+      .hud-bottom-center {
+        position: absolute;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(18, 22, 28, 0.9);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        padding: 12px 20px;
+        border-radius: 14px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        min-width: 280px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      }
+      .ink-header {
+        display: flex;
+        justify-content: space-between;
+        width: 100%;
+        font-size: 12px;
+        font-weight: 600;
+        color: #cbd5e1;
+      }
+      .ink-bar-bg {
+        width: 100%;
+        height: 8px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+      .ink-bar-fill {
+        height: 100%;
+        width: 100%;
+        background: linear-gradient(90deg, #ec4899, #a855f7, #6366f1);
+        border-radius: 4px;
+        transition: width 0.08s ease-out;
+      }
+      .hud-hint {
+        font-size: 11px;
+        color: #64748b;
+      }
+
+      /* Toast Notification */
+      #toast {
+        position: absolute;
+        top: 80px;
+        left: 50%;
+        transform: translateX(-50%) translateY(-20px);
+        background: #10b981;
+        color: white;
+        padding: 8px 16px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease, transform 0.25s ease;
+        box-shadow: 0 4px 14px rgba(16, 185, 129, 0.4);
+      }
+      #toast.show {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
     </style>
   </head>
   <body>
     <div id="canvas-container"></div>
     <div id="hud">
+      <!-- Top Left: Title & Coordinates -->
       <div class="hud-element hud-top-left">
         <h1 style="font-size: 16px; font-weight: 700; letter-spacing: -0.5px;">void.place</h1>
         <div id="coords" class="coords-display">x: 0 | y: 0 | zoom: 1.00x</div>
         <div id="sector" class="coords-display active-sector">Sector: sector:z0:x0:y0</div>
       </div>
+
+      <!-- Top Right: Compass, Share, and Dive -->
       <div class="hud-element hud-top-right">
-        <button id="dive-btn" class="btn-dive">✨ Dive into the Void</button>
+        <button id="radar-btn" class="btn btn-radar" title="Click to fly to Origin">
+          <span id="radar-icon">🎯</span> <span id="radar-text">At Origin</span>
+        </button>
+        <button id="share-btn" class="btn btn-share" title="Copy link to current view">
+          🔗 Share Location
+        </button>
+        <button id="dive-btn" class="btn btn-dive">
+          ✨ Dive into Void
+        </button>
       </div>
+
+      <!-- Bottom Center: Ink Meter -->
+      <div class="hud-element hud-bottom-center">
+        <div class="ink-header">
+          <span>Ink Reserves</span>
+          <span id="ink-percent">100%</span>
+        </div>
+        <div class="ink-bar-bg">
+          <div id="ink-fill" class="ink-bar-fill"></div>
+        </div>
+        <div class="hud-hint">Hold <b>Shift + Drag</b> to draw · Ink regenerates over time</div>
+      </div>
+
+      <!-- Toast for share link -->
+      <div id="toast">Coordinates link copied to clipboard!</div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
