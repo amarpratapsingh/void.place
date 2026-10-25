@@ -1,5 +1,13 @@
-import { CanvasElement, StrokeElement } from '@void-place/shared';
+import { CanvasElement, StrokeElement, PixelBatchElement } from '@void-place/shared';
 import { ViewportManager } from '../spatial/viewport';
+
+export interface HoverPixelInfo {
+  worldX: number;
+  worldY: number;
+  size: number;
+  color: string;
+  isEraser: boolean;
+}
 
 export class CanvasRenderer {
   private canvas: HTMLCanvasElement;
@@ -8,6 +16,9 @@ export class CanvasRenderer {
   private elements: Map<string, CanvasElement> = new Map();
   private animFrameId: number | null = null;
 
+  public showGrid: boolean = true;
+  private hoverPixel: HoverPixelInfo | null = null;
+
   constructor(container: HTMLElement, viewport: ViewportManager) {
     this.viewport = viewport;
     this.canvas = document.createElement('canvas');
@@ -15,7 +26,7 @@ export class CanvasRenderer {
     this.canvas.height = window.innerHeight;
     container.appendChild(this.canvas);
 
-    const context = this.canvas.getContext('2d');
+    const context = this.canvas.getContext('2d', { willReadFrequently: true });
     if (!context) throw new Error('Could not get 2D canvas context');
     this.ctx = context;
 
@@ -33,36 +44,173 @@ export class CanvasRenderer {
     }
   }
 
+  public setHoverPixel(info: HoverPixelInfo | null): void {
+    this.hoverPixel = info;
+    this.render();
+  }
+
   public render(): void {
     const { width, height } = this.canvas;
     const ctx = this.ctx;
 
     // Clear background
-    ctx.fillStyle = '#0b0d10';
+    ctx.fillStyle = '#0d0f12';
     ctx.fillRect(0, 0, width, height);
 
-    // Draw adaptive background grid
-    this.drawGrid(ctx, width, height);
+    // 1. Draw macro sector grid
+    this.drawMacroGrid(ctx, width, height);
 
-    // Draw Origin Landmark (The center anchor of void.place)
+    // 2. Draw Origin Landmark (The center monument)
     this.drawOrigin(ctx);
 
-    // Draw elements
+    // 3. Draw elements (pixel batches & strokes)
     for (const el of this.elements.values()) {
-      if (el.type === 'stroke') {
+      if (el.type === 'pixel_batch') {
+        this.drawPixelBatch(ctx, el as PixelBatchElement);
+      } else if (el.type === 'stroke') {
         this.drawStroke(ctx, el as StrokeElement);
       }
+    }
+
+    // 4. Draw Pixel-Art Grid (when zoomed into pixel scale)
+    if (this.showGrid) {
+      this.drawPixelGrid(ctx, width, height);
+    }
+
+    // 5. Draw active cursor hover pixel preview
+    if (this.hoverPixel) {
+      this.drawHoverIndicator(ctx, this.hoverPixel);
     }
   }
 
   /**
-   * Draws a glowing futuristic monument at (0, 0) so the center of the universe is always recognizable.
+   * Samples the color at screen coordinates (for Eyedropper).
    */
+  public getColorAt(screenX: number, screenY: number): string {
+    const pixel = this.ctx.getImageData(screenX, screenY, 1, 1).data;
+    const r = pixel[0].toString(16).padStart(2, '0');
+    const g = pixel[1].toString(16).padStart(2, '0');
+    const b = pixel[2].toString(16).padStart(2, '0');
+    return `#${r}${g}${b}`.toLowerCase();
+  }
+
+  /**
+   * Erases pixels near the given world coordinate.
+   */
+  public eraseAt(worldX: number, worldY: number, size: number): boolean {
+    let modified = false;
+    for (const [id, el] of this.elements.entries()) {
+      if (el.type === 'pixel_batch') {
+        const batch = el as PixelBatchElement;
+        const initialLen = batch.pixels.length;
+        batch.pixels = batch.pixels.filter((p) => {
+          const px = el.x + p.x;
+          const py = el.y + p.y;
+          return Math.hypot(px - worldX, py - worldY) > Math.max(1, size);
+        });
+
+        if (batch.pixels.length === 0) {
+          this.elements.delete(id);
+          modified = true;
+        } else if (batch.pixels.length !== initialLen) {
+          modified = true;
+        }
+      }
+    }
+    if (modified) this.render();
+    return modified;
+  }
+
+  /**
+   * Draws a pixel batch as crisp integer-aligned rectangles.
+   */
+  private drawPixelBatch(ctx: CanvasRenderingContext2D, el: PixelBatchElement): void {
+    for (let i = 0; i < el.pixels.length; i++) {
+      const p = el.pixels[i];
+      const screen = this.viewport.worldToScreen(el.x + p.x, el.y + p.y);
+      const pixelSize = Math.max(1, p.size * this.viewport.zoom);
+
+      ctx.fillStyle = p.color;
+      ctx.fillRect(
+        Math.floor(screen.x),
+        Math.floor(screen.y),
+        Math.ceil(pixelSize),
+        Math.ceil(pixelSize)
+      );
+    }
+  }
+
+  /**
+   * Pixel-level grid lines for Aseprite / r-place precision.
+   */
+  private drawPixelGrid(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+    if (this.viewport.zoom < 4) return; // Only show when zoomed in close
+
+    const step = this.viewport.zoom;
+    if (step < 4) return;
+
+    const startX = (width / 2 - this.viewport.x * this.viewport.zoom) % step;
+    const startY = (height / 2 - this.viewport.y * this.viewport.zoom) % step;
+
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 1;
+
+    ctx.beginPath();
+    for (let x = startX; x < width; x += step) {
+      const px = Math.floor(x) + 0.5;
+      ctx.moveTo(px, 0);
+      ctx.lineTo(px, height);
+    }
+    for (let y = startY; y < height; y += step) {
+      const py = Math.floor(y) + 0.5;
+      ctx.moveTo(0, py);
+      ctx.lineTo(width, py);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Hover cursor preview highlighting the exact pixel cell that will be painted.
+   */
+  private drawHoverIndicator(ctx: CanvasRenderingContext2D, hover: HoverPixelInfo): void {
+    const screen = this.viewport.worldToScreen(hover.worldX, hover.worldY);
+    const pixelSize = Math.max(2, hover.size * this.viewport.zoom);
+
+    ctx.save();
+    if (hover.isEraser) {
+      ctx.strokeStyle = '#ef4444';
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.25)';
+    } else {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
+      ctx.fillStyle = hover.color;
+      ctx.globalAlpha = 0.6;
+    }
+
+    ctx.lineWidth = 1;
+    ctx.fillRect(
+      Math.floor(screen.x),
+      Math.floor(screen.y),
+      Math.ceil(pixelSize),
+      Math.ceil(pixelSize)
+    );
+
+    ctx.globalAlpha = 1.0;
+    ctx.strokeRect(
+      Math.floor(screen.x) + 0.5,
+      Math.floor(screen.y) + 0.5,
+      Math.ceil(pixelSize),
+      Math.ceil(pixelSize)
+    );
+
+    ctx.restore();
+  }
+
   private drawOrigin(ctx: CanvasRenderingContext2D): void {
     const originScreen = this.viewport.worldToScreen(0, 0);
     const radius = 40 * this.viewport.zoom;
 
-    // Only draw if reasonably near screen bounds
     if (
       originScreen.x < -radius * 2 ||
       originScreen.x > this.canvas.width + radius * 2 ||
@@ -91,11 +239,9 @@ export class CanvasRenderer {
     ctx.lineWidth = Math.max(1, 1.5 * this.viewport.zoom);
     ctx.stroke();
 
-    // Center dot
-    ctx.beginPath();
-    ctx.arc(0, 0, Math.max(3, 4 * this.viewport.zoom), 0, Math.PI * 2);
+    // Center pixel
     ctx.fillStyle = '#ec4899';
-    ctx.fill();
+    ctx.fillRect(-3, -3, 6, 6);
 
     // Crosshairs
     const arm = Math.max(24, radius * 1.4);
@@ -117,15 +263,15 @@ export class CanvasRenderer {
     ctx.restore();
   }
 
-  private drawGrid(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  private drawMacroGrid(ctx: CanvasRenderingContext2D, width: number, height: number): void {
     const baseStep = 100;
     const step = baseStep * this.viewport.zoom;
-    if (step < 10) return; // Grid too dense
+    if (step < 12) return;
 
     const offsetX = (width / 2 - this.viewport.x * this.viewport.zoom) % step;
     const offsetY = (height / 2 - this.viewport.y * this.viewport.zoom) % step;
 
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
     ctx.lineWidth = 1;
 
     ctx.beginPath();
@@ -160,9 +306,6 @@ export class CanvasRenderer {
     ctx.stroke();
   }
 
-  /**
-   * Smoothly interpolates the camera to a target location (Hyperspace Dive).
-   */
   public flyTo(
     targetX: number,
     targetY: number,
@@ -178,7 +321,7 @@ export class CanvasRenderer {
     const startY = this.viewport.y;
     const startZoom = this.viewport.zoom;
     const startTime = performance.now();
-    const duration = 1000; // 1 second
+    const duration = 1000;
 
     const easeInOutCubic = (t: number) =>
       t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;

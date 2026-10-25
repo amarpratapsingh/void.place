@@ -165,6 +165,13 @@ export class SectorRoom implements DurableObject {
       return true;
     }
 
+    if (element.type === 'pixel_batch') {
+      const batch = element as any;
+      if (!Array.isArray(batch.pixels)) return false;
+      if (batch.pixels.length === 0 || batch.pixels.length > MAX_STROKE_POINTS) return false;
+      return true;
+    }
+
     return true;
   }
 

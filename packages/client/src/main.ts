@@ -1,8 +1,8 @@
 import { ViewportManager } from './spatial/viewport';
 import { CanvasRenderer } from './canvas/renderer';
-import { HUDController } from './ui/hud';
+import { HUDController, ToolMode } from './ui/hud';
 import { SectorSyncManager } from './sync/client-room';
-import { StrokeElement } from '@void-place/shared';
+import { PixelBatchElement, PixelData } from '@void-place/shared';
 
 const container = document.getElementById('canvas-container')!;
 const viewport = new ViewportManager();
@@ -20,8 +20,10 @@ function onViewportChanged(): void {
   syncManager.updateActiveSector(viewport.getCurrentCenterSector());
 }
 
-// HUD controller with hyperspace camera navigation
-const hud = new HUDController(
+// HUD controller with tool actions and camera navigation
+let hud: HUDController;
+
+hud = new HUDController(
   viewport,
   (target) => {
     // Smooth hyperspace dive into coordinates
@@ -35,67 +37,150 @@ const hud = new HUDController(
     renderer.flyTo(0, 0, 1.0, onViewportChanged, () => {
       hud.showToast('🎯 Returned to Origin (0,0)');
     });
+  },
+  (tool: ToolMode) => {
+    if (tool === 'pan' || tool === 'picker') {
+      renderer.setHoverPixel(null);
+    }
+  },
+  (gridEnabled: boolean) => {
+    renderer.showGrid = gridEnabled;
+    renderer.render();
   }
 );
 
-// Continuous loop for smooth ink regeneration & rendering
+// Continuous loop for smooth ink regeneration
 let lastTime = performance.now();
 function gameLoop(now: number): void {
   const dt = (now - lastTime) / 1000;
   lastTime = now;
 
   hud.updateInk(dt);
-
   requestAnimationFrame(gameLoop);
 }
 requestAnimationFrame(gameLoop);
 
-// User interactions: Pan, Zoom, and Ink-limited Drawing
-let isDragging = false;
-let isDrawing = false;
+// Interaction state
+let isMouseDown = false;
+let isPanning = false;
+let spaceHeld = false;
 let lastMouseX = 0;
 let lastMouseY = 0;
-let lastWorldX = 0;
-let lastWorldY = 0;
-let currentStroke: StrokeElement | null = null;
 
+// Active drawing batch
+let currentBatchPixels = new Map<string, PixelData>();
+let currentBatchOrigin: { x: number; y: number } | null = null;
+
+// Spacebar pan mode
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && !spaceHeld && !(e.target instanceof HTMLInputElement)) {
+    spaceHeld = true;
+    document.body.classList.add('tool-pan');
+    renderer.setHoverPixel(null);
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'Space') {
+    spaceHeld = false;
+    document.body.classList.remove('tool-pan');
+    document.body.classList.add(`tool-${hud.currentTool}`);
+  }
+});
+
+// Calculate snapped pixel grid coordinate
+function getSnappedWorldPos(clientX: number, clientY: number): { x: number; y: number; size: number } {
+  const world = viewport.screenToWorld(clientX, clientY);
+  const size = hud.currentPixelSize;
+  const snappedX = Math.floor(world.x / size) * size;
+  const snappedY = Math.floor(world.y / size) * size;
+  return { x: snappedX, y: snappedY, size };
+}
+
+// Paint pixel at snapped position
+function paintPixel(snappedX: number, snappedY: number, size: number): void {
+  const key = `${snappedX},${snappedY}`;
+  if (currentBatchPixels.has(key)) return;
+
+  // Ink cost: 0.35 ink per 1x1 pixel unit
+  const cost = 0.35 * (size * size);
+  if (!hud.consumeInk(cost)) {
+    hud.showToast('⚠️ Depleted ink reserves! Regenerating...');
+    return;
+  }
+
+  if (!currentBatchOrigin) {
+    currentBatchOrigin = { x: snappedX, y: snappedY };
+  }
+
+  const pixelData: PixelData = {
+    x: snappedX - currentBatchOrigin.x,
+    y: snappedY - currentBatchOrigin.y,
+    color: hud.currentColor,
+    size,
+  };
+
+  currentBatchPixels.set(key, pixelData);
+
+  // Optimistic preview in current session
+  renderer.addElement({
+    id: `preview_${key}`,
+    type: 'pixel_batch',
+    x: currentBatchOrigin.x,
+    y: currentBatchOrigin.y,
+    zoom: Math.log2(viewport.zoom),
+    createdAt: Date.now(),
+    pixels: [pixelData],
+  });
+}
+
+// Mouse Down
 window.addEventListener('mousedown', (e) => {
+  // Ignore clicks outside the canvas (e.g. on HUD toolbar buttons)
+  if ((e.target as HTMLElement).closest('#hud')) return;
+
+  isMouseDown = true;
+  lastMouseX = e.clientX;
+  lastMouseY = e.clientY;
+
+  // Pan via Middle Click, Space + Click, or Pan Tool
+  if (e.button === 1 || spaceHeld || hud.currentTool === 'pan') {
+    isPanning = true;
+    document.body.classList.add('dragging');
+    return;
+  }
+
   if (e.button === 0) {
-    if (e.shiftKey) {
-      // Check if user has sufficient ink to start a stroke
-      if (!hud.consumeInk(3)) {
-        hud.showToast('⚠️ Out of ink! Wait for reserves to regenerate.');
-        return;
-      }
+    // Eyedropper Tool
+    if (hud.currentTool === 'picker') {
+      const pickedColor = renderer.getColorAt(e.clientX, e.clientY);
+      hud.setColor(pickedColor);
+      hud.setTool('pencil');
+      hud.showToast(`Picked color: ${pickedColor.toUpperCase()}`);
+      return;
+    }
 
-      isDrawing = true;
-      const world = viewport.screenToWorld(e.clientX, e.clientY);
-      lastWorldX = world.x;
-      lastWorldY = world.y;
+    const { x, y, size } = getSnappedWorldPos(e.clientX, e.clientY);
 
-      currentStroke = {
-        id: crypto.randomUUID(),
-        type: 'stroke',
-        x: world.x,
-        y: world.y,
-        zoom: Math.log2(viewport.zoom),
-        createdAt: Date.now(),
-        color: '#a855f7',
-        width: 3 / viewport.zoom,
-        points: [0, 0],
-      };
-      renderer.addElement(currentStroke);
-    } else {
-      // Pan mode
-      isDragging = true;
-      lastMouseX = e.clientX;
-      lastMouseY = e.clientY;
+    // Eraser Tool
+    if (hud.currentTool === 'eraser') {
+      renderer.eraseAt(x, y, size);
+      return;
+    }
+
+    // Pencil Tool
+    if (hud.currentTool === 'pencil') {
+      currentBatchPixels.clear();
+      currentBatchOrigin = null;
+      paintPixel(x, y, size);
     }
   }
 });
 
+// Mouse Move
 window.addEventListener('mousemove', (e) => {
-  if (isDragging) {
+  // 1. Pan handling
+  if (isPanning) {
     const dx = (e.clientX - lastMouseX) / viewport.zoom;
     const dy = (e.clientY - lastMouseY) / viewport.zoom;
     viewport.x -= dx;
@@ -103,54 +188,74 @@ window.addEventListener('mousemove', (e) => {
     lastMouseX = e.clientX;
     lastMouseY = e.clientY;
     onViewportChanged();
-  } else if (isDrawing && currentStroke) {
-    const world = viewport.screenToWorld(e.clientX, e.clientY);
-    const segDist = Math.hypot(world.x - lastWorldX, world.y - lastWorldY);
+    return;
+  }
 
-    // Only add points if moved minimum world distance
-    const minThreshold = 2 / viewport.zoom;
-    if (segDist > minThreshold) {
-      // Calculate ink cost proportional to segment length
-      const cost = Math.max(0.2, (segDist * viewport.zoom) * 0.05);
+  const { x, y, size } = getSnappedWorldPos(e.clientX, e.clientY);
 
-      if (!hud.consumeInk(cost)) {
-        // Out of ink! End current stroke
-        const sectorKey = viewport.getCurrentCenterSector();
-        syncManager.sendElement(sectorKey, currentStroke);
-        currentStroke = null;
-        isDrawing = false;
-        hud.showToast('⚠️ Depleted ink reserves! Regenerating...');
-        return;
-      }
-
-      const relX = world.x - currentStroke.x;
-      const relY = world.y - currentStroke.y;
-      currentStroke.points.push(relX, relY);
-
-      lastWorldX = world.x;
-      lastWorldY = world.y;
-      renderer.render();
+  // 2. Drawing / Erasing while dragging
+  if (isMouseDown) {
+    if (hud.currentTool === 'pencil') {
+      paintPixel(x, y, size);
+    } else if (hud.currentTool === 'eraser') {
+      renderer.eraseAt(x, y, size);
     }
   }
-});
 
-window.addEventListener('mouseup', () => {
-  if (isDrawing && currentStroke) {
-    const sectorKey = viewport.getCurrentCenterSector();
-    syncManager.sendElement(sectorKey, currentStroke);
-    currentStroke = null;
-    isDrawing = false;
+  // 3. Hover indicator (crosshair pixel cell preview)
+  if (!spaceHeld && (hud.currentTool === 'pencil' || hud.currentTool === 'eraser')) {
+    renderer.setHoverPixel({
+      worldX: x,
+      worldY: y,
+      size,
+      color: hud.currentColor,
+      isEraser: hud.currentTool === 'eraser',
+    });
+  } else {
+    renderer.setHoverPixel(null);
   }
-  isDragging = false;
 });
 
+// Mouse Up: Commit pixel batch
+window.addEventListener('mouseup', () => {
+  if (isPanning) {
+    isPanning = false;
+    document.body.classList.remove('dragging');
+  }
+
+  if (isMouseDown && hud.currentTool === 'pencil' && currentBatchPixels.size > 0 && currentBatchOrigin) {
+    const batch: PixelBatchElement = {
+      id: crypto.randomUUID(),
+      type: 'pixel_batch',
+      x: currentBatchOrigin.x,
+      y: currentBatchOrigin.y,
+      zoom: Math.log2(viewport.zoom),
+      createdAt: Date.now(),
+      pixels: Array.from(currentBatchPixels.values()),
+    };
+
+    const sectorKey = viewport.getCurrentCenterSector();
+    syncManager.sendElement(sectorKey, batch);
+
+    currentBatchPixels.clear();
+    currentBatchOrigin = null;
+  }
+
+  isMouseDown = false;
+});
+
+// Hide hover indicator when mouse leaves canvas
+document.addEventListener('mouseleave', () => {
+  renderer.setHoverPixel(null);
+});
+
+// Mouse Wheel: Zoom centered on cursor
 window.addEventListener(
   'wheel',
   (e) => {
     e.preventDefault();
     const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
 
-    // Zoom centered on cursor
     const mouseWorldBefore = viewport.screenToWorld(e.clientX, e.clientY);
     viewport.zoom *= zoomFactor;
     viewport.zoom = Math.max(0.0001, Math.min(100000, viewport.zoom));
@@ -160,6 +265,18 @@ window.addEventListener(
     viewport.y += mouseWorldBefore.y - mouseWorldAfter.y;
 
     onViewportChanged();
+
+    // Refresh hover pixel position under new zoom
+    const { x, y, size } = getSnappedWorldPos(e.clientX, e.clientY);
+    if (!spaceHeld && (hud.currentTool === 'pencil' || hud.currentTool === 'eraser')) {
+      renderer.setHoverPixel({
+        worldX: x,
+        worldY: y,
+        size,
+        color: hud.currentColor,
+        isEraser: hud.currentTool === 'eraser',
+      });
+    }
   },
   { passive: false }
 );

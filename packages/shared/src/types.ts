@@ -27,7 +27,7 @@ export interface SectorInfo {
   elementCount: number;
 }
 
-export type ElementType = 'stroke' | 'text' | 'image' | 'embedded-link';
+export type ElementType = 'stroke' | 'text' | 'image' | 'embedded-link' | 'pixel_batch';
 
 export interface BaseCanvasElement {
   id: string;
@@ -46,6 +46,18 @@ export interface StrokeElement extends BaseCanvasElement {
   points: number[]; // Flattened [dx0, dy0, dx1, dy1, ...] relative to element x,y
 }
 
+export interface PixelData {
+  x: number;
+  y: number;
+  color: string;
+  size: number; // Grid-snapped size: 1, 2, 4, 8...
+}
+
+export interface PixelBatchElement extends BaseCanvasElement {
+  type: 'pixel_batch';
+  pixels: PixelData[];
+}
+
 export interface TextElement extends BaseCanvasElement {
   type: 'text';
   content: string;
@@ -53,7 +65,7 @@ export interface TextElement extends BaseCanvasElement {
   color: string;
 }
 
-export type CanvasElement = StrokeElement | TextElement;
+export type CanvasElement = StrokeElement | TextElement | PixelBatchElement;
 
 export interface DiveTarget {
   x: number;
