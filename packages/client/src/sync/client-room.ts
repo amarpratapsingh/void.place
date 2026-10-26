@@ -1,15 +1,18 @@
 import { CanvasElement } from '@void-place/shared';
 
 export type OnElementCallback = (element: CanvasElement) => void;
+export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
 export class SectorSyncManager {
   private activeSector: string | null = null;
   private activeWs: WebSocket | null = null;
   private onElementAdded: OnElementCallback;
+  private onStatusChange?: (status: ConnectionStatus) => void;
   private debounceTimer: number | null = null;
 
-  constructor(onElementAdded: OnElementCallback) {
+  constructor(onElementAdded: OnElementCallback, onStatusChange?: (status: ConnectionStatus) => void) {
     this.onElementAdded = onElementAdded;
+    this.onStatusChange = onStatusChange;
   }
 
   /**
@@ -52,8 +55,15 @@ export class SectorSyncManager {
     const host = window.location.host;
     const url = `${protocol}//${host}/api/room/${encodeURIComponent(sectorKey)}`;
 
+    this.onStatusChange?.('connecting');
     const ws = new WebSocket(url);
     this.activeWs = ws;
+
+    ws.onopen = () => {
+      if (this.activeWs === ws) {
+        this.onStatusChange?.('connected');
+      }
+    };
 
     ws.onmessage = (event) => {
       try {
@@ -75,6 +85,7 @@ export class SectorSyncManager {
     ws.onclose = () => {
       if (this.activeWs === ws) {
         this.activeWs = null;
+        this.onStatusChange?.('disconnected');
       }
     };
   }

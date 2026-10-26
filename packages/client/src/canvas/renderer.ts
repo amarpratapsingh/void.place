@@ -19,12 +19,16 @@ export class CanvasRenderer {
   public showGrid: boolean = true;
   private hoverPixel: HoverPixelInfo | null = null;
 
-  constructor(container: HTMLElement, viewport: ViewportManager) {
+  constructor(canvasOrContainer: HTMLCanvasElement | HTMLElement, viewport: ViewportManager) {
     this.viewport = viewport;
-    this.canvas = document.createElement('canvas');
+    if (canvasOrContainer instanceof HTMLCanvasElement) {
+      this.canvas = canvasOrContainer;
+    } else {
+      this.canvas = document.createElement('canvas');
+      canvasOrContainer.appendChild(this.canvas);
+    }
     this.canvas.width = window.innerWidth;
     this.canvas.height = window.innerHeight;
-    container.appendChild(this.canvas);
 
     const context = this.canvas.getContext('2d', { willReadFrequently: true });
     if (!context) throw new Error('Could not get 2D canvas context');

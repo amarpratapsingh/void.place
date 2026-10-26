@@ -1,304 +1,173 @@
-import { ViewportManager } from '../spatial/viewport';
-import { DiveTarget } from '@void-place/shared';
+export interface HUDCallbacks {
+  onColorSelect?: (hex: string) => void;
+  onDiveClick?: () => void;
+  onZoomIn?: () => void;
+  onZoomOut?: () => void;
+  onResetZoom?: () => void;
+  onJumpToCoords?: (x: number, y: number) => void;
+}
 
-export type ToolMode = 'pencil' | 'eraser' | 'picker' | 'pan';
-
-export const RETRO_PALETTE = [
-  '#000000', '#1d2b53', '#7e2553', '#008751',
-  '#ab5236', '#5f574f', '#c2c3c7', '#fff1e8',
-  '#ff004d', '#ffa300', '#ffec27', '#00e436',
-  '#29adff', '#83769c', '#ff77a8', '#ffccaa'
+const DEFAULT_PALETTE = [
+  '#ffffff', '#d4d4d8', '#71717a', '#18181b',
+  '#ef4444', '#f97316', '#f59e0b', '#eab308',
+  '#84cc16', '#10b981', '#06b6d4', '#3b82f6',
+  '#6366f1', '#8b5cf6', '#d946ef', '#f43f5e'
 ];
 
-export class HUDController {
-  private coordsEl: HTMLElement | null;
-  private sectorEl: HTMLElement | null;
-  private diveBtn: HTMLElement | null;
-  private shareBtn: HTMLElement | null;
-  private radarBtn: HTMLElement | null;
-  private radarIcon: HTMLElement | null;
-  private radarText: HTMLElement | null;
-  private inkFill: HTMLElement | null;
-  private inkPercent: HTMLElement | null;
-  private toastEl: HTMLElement | null;
+export class HUD {
+  private root: HTMLElement;
+  private statusDot!: HTMLElement;
+  private coordEl!: HTMLElement;
+  private sectorEl!: HTMLElement;
+  private zoomEl!: HTMLElement;
+  private onlineEl!: HTMLElement;
+  private activeColor: string = DEFAULT_PALETTE[12]; // Indigo default
+  private callbacks: HUDCallbacks;
 
-  // Pixel Canvas Tools & Palette Elements
-  private activeColorSwatch: HTMLElement | null;
-  private customColorInput: HTMLInputElement | null;
-  private paletteContainer: HTMLElement | null;
-  private gridBtn: HTMLElement | null;
-
-  private viewport: ViewportManager;
-  private onDive: (target: DiveTarget) => void;
-  private onFlyToOrigin: () => void;
-  private onToolChange: (tool: ToolMode) => void;
-  private onGridToggle: (enabled: boolean) => void;
-
-  // Active Tool State
-  public currentTool: ToolMode = 'pencil';
-  public currentColor: string = '#ff004d';
-  public currentPixelSize: number = 1;
-  public gridEnabled: boolean = true;
-
-  // Ink mechanics: 0 to 100
-  public ink: number = 100;
-  private maxInk: number = 100;
-  private regenRatePerSec: number = 12;
-
-  constructor(
-    viewport: ViewportManager,
-    onDive: (target: DiveTarget) => void,
-    onFlyToOrigin: () => void,
-    onToolChange: (tool: ToolMode) => void,
-    onGridToggle: (enabled: boolean) => void
-  ) {
-    this.viewport = viewport;
-    this.onDive = onDive;
-    this.onFlyToOrigin = onFlyToOrigin;
-    this.onToolChange = onToolChange;
-    this.onGridToggle = onGridToggle;
-
-    this.coordsEl = document.getElementById('coords');
-    this.sectorEl = document.getElementById('sector');
-    this.diveBtn = document.getElementById('dive-btn');
-    this.shareBtn = document.getElementById('share-btn');
-    this.radarBtn = document.getElementById('radar-btn');
-    this.radarIcon = document.getElementById('radar-icon');
-    this.radarText = document.getElementById('radar-text');
-    this.inkFill = document.getElementById('ink-fill');
-    this.inkPercent = document.getElementById('ink-percent');
-    this.toastEl = document.getElementById('toast');
-
-    this.activeColorSwatch = document.getElementById('active-color-swatch');
-    this.customColorInput = document.getElementById('custom-color-input') as HTMLInputElement;
-    this.paletteContainer = document.getElementById('palette-swatches');
-    this.gridBtn = document.getElementById('toggle-grid');
-
-    this.initPalette();
-    this.setupListeners();
-    this.setTool('pencil');
-    this.setColor('#ff004d');
+  constructor(rootElement: HTMLElement, callbacks: HUDCallbacks = {}) {
+    this.root = rootElement;
+    this.callbacks = callbacks;
+    this.render();
+    this.bindShortcuts();
   }
 
-  public update(): void {
-    if (this.coordsEl) {
-      const xStr = (this.viewport.x >= 0 ? '+' : '') + this.viewport.x.toFixed(1);
-      const yStr = (this.viewport.y >= 0 ? '+' : '') + this.viewport.y.toFixed(1);
-      const zoomStr = this.viewport.zoom < 0.1
-        ? `10^${Math.round(Math.log10(this.viewport.zoom))}x`
-        : `${this.viewport.zoom.toFixed(2)}x`;
-      this.coordsEl.innerText = `X: ${xStr} · Y: ${yStr} · MAG: ${zoomStr}`;
-    }
-    if (this.sectorEl) {
-      this.sectorEl.innerText = `SECTOR // ${this.viewport.getCurrentCenterSector()}`;
-    }
+  private render() {
+    this.root.innerHTML = `
+      <!-- Top Bar -->
+      <div class="hud-top">
+        <div class="glass-panel status-pill hud-interactive">
+          <div class="status-dot" id="hud-status-dot" title="Connection Status"></div>
+          <span class="coord-badge" id="hud-coords" title="Click to jump to coordinates">X: 0, Y: 0</span>
+          <div class="divider"></div>
+          <span class="sector-badge" id="hud-sector">SEC 0:0</span>
+          <div class="divider"></div>
+          <span class="sector-badge" id="hud-online">1 online</span>
+        </div>
 
-    if (this.radarIcon && this.radarText) {
-      const compass = this.viewport.getCompassToOrigin();
-      this.radarIcon.innerText = compass.arrow;
-      if (compass.isAtOrigin) {
-        this.radarText.innerText = 'SINGULARITY [0,0]';
-      } else {
-        const degPadded = compass.degrees.toString().padStart(3, '0');
-        this.radarText.innerText = `HDG ${degPadded}° · ${compass.formatted}`;
-      }
-    }
+        <div class="hud-actions hud-interactive">
+          <button class="btn-glass btn-primary" id="hud-dive-btn" title="Dive to an active or random location">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+            </svg>
+            Dive
+          </button>
+        </div>
+      </div>
+
+      <div></div> <!-- Center spacer -->
+
+      <!-- Bottom Dock -->
+      <div class="hud-bottom">
+        <div class="glass-panel dock-container hud-interactive">
+          <div class="palette-grid" id="hud-palette">
+            ${DEFAULT_PALETTE.map(
+              (color) => `
+              <button
+                class="color-swatch ${color === this.activeColor ? 'active' : ''}"
+                style="background-color: ${color}"
+                data-color="${color}"
+                aria-label="Select color ${color}"
+              ></button>
+            `
+            ).join('')}
+            <label class="custom-color-wrapper" title="Custom Color">
+              <input type="color" id="hud-custom-color" value="${this.activeColor}" />
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="zoom-controls">
+            <button class="icon-btn" id="hud-zoom-out" title="Zoom Out (-)">−</button>
+            <span class="zoom-readout" id="hud-zoom-readout" title="Reset Zoom">100%</span>
+            <button class="icon-btn" id="hud-zoom-in" title="Zoom In (+)">+</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    this.statusDot = this.root.querySelector('#hud-status-dot')!;
+    this.coordEl = this.root.querySelector('#hud-coords')!;
+    this.sectorEl = this.root.querySelector('#hud-sector')!;
+    this.zoomEl = this.root.querySelector('#hud-zoom-readout')!;
+    this.onlineEl = this.root.querySelector('#hud-online')!;
+
+    this.attachListeners();
   }
 
-  public updateInk(dtSeconds: number): void {
-    if (this.ink < this.maxInk) {
-      this.ink = Math.min(this.maxInk, this.ink + this.regenRatePerSec * dtSeconds);
-      this.renderInk();
-    }
-  }
-
-  public consumeInk(cost: number): boolean {
-    if (this.ink < cost) return false;
-    this.ink = Math.max(0, this.ink - cost);
-    this.renderInk();
-    return true;
-  }
-
-  private renderInk(): void {
-    if (this.inkFill && this.inkPercent) {
-      const pct = Math.round((this.ink / this.maxInk) * 100);
-      this.inkFill.style.width = `${pct}%`;
-      this.inkPercent.innerText = `${pct}%`;
-
-      if (pct < 15) {
-        this.inkFill.style.background = '#ef4444';
-      } else {
-        this.inkFill.style.background = 'linear-gradient(90deg, #ec4899, #a855f7, #38bdf8)';
-      }
-    }
-  }
-
-  public setTool(tool: ToolMode): void {
-    this.currentTool = tool;
-
-    // Update body cursor class
-    document.body.className = `tool-${tool}`;
-
-    // Update UI active buttons
-    ['pencil', 'eraser', 'picker', 'pan'].forEach((t) => {
-      const btn = document.getElementById(`tool-${t}`);
-      if (btn) {
-        if (t === tool) btn.classList.add('active');
-        else btn.classList.remove('active');
-      }
+  private attachListeners() {
+    // Palette swatches
+    const palette = this.root.querySelector('#hud-palette')!;
+    palette.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement).closest('.color-swatch') as HTMLElement | null;
+      if (!target || !target.dataset.color) return;
+      this.setColor(target.dataset.color);
     });
 
-    this.onToolChange(tool);
-  }
+    // Custom color picker
+    const customInput = this.root.querySelector('#hud-custom-color') as HTMLInputElement;
+    customInput.addEventListener('input', (e) => {
+      const val = (e.target as HTMLInputElement).value;
+      this.setColor(val, true);
+    });
 
-  public setColor(color: string): void {
-    this.currentColor = color.toLowerCase();
-    if (this.activeColorSwatch) {
-      this.activeColorSwatch.style.backgroundColor = this.currentColor;
-    }
-    if (this.customColorInput) {
-      this.customColorInput.value = this.currentColor;
-    }
+    // Dive Button
+    this.root.querySelector('#hud-dive-btn')?.addEventListener('click', () => {
+      this.callbacks.onDiveClick?.();
+    });
 
-    // Highlight selected swatch
-    const swatches = document.querySelectorAll('.swatch');
-    swatches.forEach((s) => {
-      const el = s as HTMLElement;
-      if (el.dataset.color === this.currentColor) {
-        el.classList.add('selected');
-      } else {
-        el.classList.remove('selected');
+    // Zoom Controls
+    this.root.querySelector('#hud-zoom-in')?.addEventListener('click', () => this.callbacks.onZoomIn?.());
+    this.root.querySelector('#hud-zoom-out')?.addEventListener('click', () => this.callbacks.onZoomOut?.());
+    this.zoomEl.addEventListener('click', () => this.callbacks.onResetZoom?.());
+
+    // Coordinate Jump Prompt
+    this.coordEl.addEventListener('click', () => {
+      const input = prompt('Jump to coordinates (X, Y):', '0, 0');
+      if (!input) return;
+      const parts = input.split(',').map((s) => parseInt(s.trim(), 10));
+      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        this.callbacks.onJumpToCoords?.(parts[0], parts[1]);
       }
     });
   }
 
-  private initPalette(): void {
-    if (!this.paletteContainer) return;
-    this.paletteContainer.innerHTML = '';
-
-    RETRO_PALETTE.forEach((color) => {
-      const swatch = document.createElement('div');
-      swatch.className = 'swatch';
-      swatch.style.backgroundColor = color;
-      swatch.dataset.color = color;
-      swatch.title = color;
-
-      swatch.addEventListener('click', () => {
-        this.setColor(color);
-        if (this.currentTool === 'eraser') {
-          this.setTool('pencil');
-        }
-      });
-
-      this.paletteContainer?.appendChild(swatch);
-    });
-  }
-
-  public showToast(message: string): void {
-    if (this.toastEl) {
-      this.toastEl.innerText = message;
-      this.toastEl.classList.add('show');
-      setTimeout(() => {
-        this.toastEl?.classList.remove('show');
-      }, 2200);
-    }
-  }
-
-  private setupListeners(): void {
-    // 1. Tool buttons
-    document.getElementById('tool-pencil')?.addEventListener('click', () => this.setTool('pencil'));
-    document.getElementById('tool-eraser')?.addEventListener('click', () => this.setTool('eraser'));
-    document.getElementById('tool-picker')?.addEventListener('click', () => this.setTool('picker'));
-    document.getElementById('tool-pan')?.addEventListener('click', () => this.setTool('pan'));
-
-    // 2. Pixel size selector
-    const sizeBtns = document.querySelectorAll('.size-btn');
-    sizeBtns.forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        sizeBtns.forEach((b) => b.classList.remove('active'));
-        const el = e.currentTarget as HTMLElement;
-        el.classList.add('active');
-        this.currentPixelSize = parseInt(el.dataset.size || '1', 10);
-      });
-    });
-
-    // 3. Grid toggle
-    this.gridBtn?.addEventListener('click', () => {
-      this.gridEnabled = !this.gridEnabled;
-      if (this.gridEnabled) this.gridBtn?.classList.add('active');
-      else this.gridBtn?.classList.remove('active');
-      this.onGridToggle(this.gridEnabled);
-    });
-
-    // 4. Custom color input
-    this.customColorInput?.addEventListener('input', (e) => {
-      const target = e.target as HTMLInputElement;
-      this.setColor(target.value);
-    });
-
-    // 5. Dive, Share & Origin
-    this.diveBtn?.addEventListener('click', async () => {
-      try {
-        this.diveBtn!.innerText = '⟁ WARPING...';
-        const res = await fetch('/api/dive');
-        if (res.ok) {
-          const data: DiveTarget = await res.json();
-          this.onDive(data);
-        }
-      } catch (e) {
-        console.error('Dive failed', e);
-      } finally {
-        this.diveBtn!.innerText = '[ ⟁ WARP DIVE ]';
-      }
-    });
-
-    this.shareBtn?.addEventListener('click', async () => {
-      const url = this.viewport.getShareUrl();
-      try {
-        await navigator.clipboard.writeText(url);
-        this.showToast('VECTOR COORDINATES COPIED');
-      } catch {
-        prompt('Copy vector coordinates:', url);
-      }
-    });
-
-    this.radarBtn?.addEventListener('click', () => {
-      this.onFlyToOrigin();
-    });
-
-    // 6. Keyboard Shortcuts: B (pencil), E (eraser), I (picker), H (pan), G (grid)
+  private bindShortcuts() {
     window.addEventListener('keydown', (e) => {
-      if (e.target instanceof HTMLInputElement) return;
-
-      const key = e.key.toLowerCase();
-      if (key === 'b' || key === 'p') this.setTool('pencil');
-      else if (key === 'e') this.setTool('eraser');
-      else if (key === 'i') this.setTool('picker');
-      else if (key === 'h') this.setTool('pan');
-      else if (key === 'g') {
-        this.gridEnabled = !this.gridEnabled;
-        if (this.gridEnabled) this.gridBtn?.classList.add('active');
-        else this.gridBtn?.classList.remove('active');
-        this.onGridToggle(this.gridEnabled);
-      } else if (key === '1') {
-        this.setPixelSize(1);
-      } else if (key === '2') {
-        this.setPixelSize(2);
-      } else if (key === '3' || key === '4') {
-        this.setPixelSize(4);
-      } else if (key === '8') {
-        this.setPixelSize(8);
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key.toLowerCase() === 'h') {
+        this.root.style.opacity = this.root.style.opacity === '0' ? '1' : '0';
       }
     });
   }
 
-  private setPixelSize(size: number): void {
-    this.currentPixelSize = size;
-    const sizeBtns = document.querySelectorAll('.size-btn');
-    sizeBtns.forEach((b) => {
-      const el = b as HTMLElement;
-      if (parseInt(el.dataset.size || '1', 10) === size) el.classList.add('active');
-      else el.classList.remove('active');
+  public setColor(color: string, isCustom = false) {
+    this.activeColor = color;
+    this.root.querySelectorAll('.color-swatch').forEach((el) => {
+      const swatch = el as HTMLElement;
+      swatch.classList.toggle('active', !isCustom && swatch.dataset.color === color);
     });
+    this.callbacks.onColorSelect?.(color);
+  }
+
+  public getColor(): string {
+    return this.activeColor;
+  }
+
+  public updatePosition(worldX: number, worldY: number, sectorX: number, sectorY: number) {
+    this.coordEl.textContent = `X: ${Math.floor(worldX)}, Y: ${Math.floor(worldY)}`;
+    this.sectorEl.textContent = `SEC ${sectorX}:${sectorY}`;
+  }
+
+  public updateZoom(scale: number) {
+    this.zoomEl.textContent = `${Math.round(scale * 100)}%`;
+  }
+
+  public setConnectionStatus(status: 'connecting' | 'connected' | 'disconnected') {
+    this.statusDot.className = `status-dot ${status}`;
+  }
+
+  public updateOnlineCount(count: number) {
+    this.onlineEl.textContent = `${count} online`;
   }
 }

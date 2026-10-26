@@ -1,66 +1,70 @@
 import { ViewportManager } from './spatial/viewport';
 import { CanvasRenderer } from './canvas/renderer';
-import { HUDController, ToolMode } from './ui/hud';
+import { HUD } from './ui/hud';
 import { SectorSyncManager } from './sync/client-room';
-import { PixelBatchElement, PixelData } from '@void-place/shared';
+import { PixelBatchElement, PixelData, parseSectorKey, DiveTarget } from '@void-place/shared';
 
-const container = document.getElementById('canvas-container')!;
+const canvas = document.getElementById('void-canvas') as HTMLCanvasElement;
 const viewport = new ViewportManager();
-const renderer = new CanvasRenderer(container, viewport);
+const renderer = new CanvasRenderer(canvas, viewport);
 
-const syncManager = new SectorSyncManager((element) => {
-  renderer.addElement(element);
-});
+let hud: HUD;
+
+const syncManager = new SectorSyncManager(
+  (element) => {
+    renderer.addElement(element);
+  },
+  (status) => {
+    hud?.setConnectionStatus(status);
+  }
+);
 
 // Update HUD, URL hash, and real-time room sync
 function onViewportChanged(): void {
   renderer.render();
-  hud.update();
+  const parsed = parseSectorKey(viewport.getCurrentCenterSector());
+  hud?.updatePosition(viewport.x, viewport.y, parsed?.sectorX ?? 0, parsed?.sectorY ?? 0);
+  hud?.updateZoom(viewport.zoom);
   viewport.queueUrlSync();
   syncManager.updateActiveSector(viewport.getCurrentCenterSector());
 }
 
-// HUD controller with tool actions and camera navigation
-let hud: HUDController;
-
-hud = new HUDController(
-  viewport,
-  (target) => {
-    // Smooth hyperspace dive into coordinates
-    const targetZoom = Math.pow(2, target.zoom);
-    renderer.flyTo(target.x, target.y, targetZoom, onViewportChanged, () => {
-      hud.showToast(`⌖ ARRIVED AT ${target.description ? target.description.toUpperCase() : 'UNCHARTED SECTOR'}`);
-    });
+// Initialize reactive HUD
+const hudRoot = document.getElementById('hud-root')!;
+hud = new HUD(hudRoot, {
+  onColorSelect: (_hex) => {
+    // Active color updated
   },
-  () => {
-    // Return to Singularity (0,0)
-    renderer.flyTo(0, 0, 1.0, onViewportChanged, () => {
-      hud.showToast('⌖ ANCHORED AT SINGULARITY [0,0]');
-    });
-  },
-  (tool: ToolMode) => {
-    if (tool === 'pan' || tool === 'picker') {
-      renderer.setHoverPixel(null);
+  onDiveClick: async () => {
+    try {
+      const res = await fetch('/api/dive');
+      if (res.ok) {
+        const data: DiveTarget = await res.json();
+        const targetZoom = Math.pow(2, data.zoom);
+        renderer.flyTo(data.x, data.y, targetZoom, onViewportChanged);
+      }
+    } catch (err) {
+      console.error('Dive failed', err);
     }
   },
-  (gridEnabled: boolean) => {
-    renderer.showGrid = gridEnabled;
-    renderer.render();
-  }
-);
+  onZoomIn: () => {
+    viewport.zoom = Math.min(100000, viewport.zoom * 1.3);
+    onViewportChanged();
+  },
+  onZoomOut: () => {
+    viewport.zoom = Math.max(0.0001, viewport.zoom * 0.7);
+    onViewportChanged();
+  },
+  onResetZoom: () => {
+    viewport.zoom = 1.0;
+    onViewportChanged();
+  },
+  onJumpToCoords: (x, y) => {
+    renderer.flyTo(x, y, viewport.zoom, onViewportChanged);
+  },
+});
 
-// Continuous loop for smooth ink regeneration
-let lastTime = performance.now();
-function gameLoop(now: number): void {
-  const dt = (now - lastTime) / 1000;
-  lastTime = now;
-
-  hud.updateInk(dt);
-  requestAnimationFrame(gameLoop);
-}
-requestAnimationFrame(gameLoop);
-
-// Interaction state
+// Canvas Interaction State
 let isMouseDown = false;
 let isPanning = false;
 let spaceHeld = false;
@@ -68,14 +72,14 @@ let lastMouseX = 0;
 let lastMouseY = 0;
 
 // Active drawing batch
-let currentBatchPixels = new Map<string, PixelData>();
+const currentBatchPixels = new Map<string, PixelData>();
 let currentBatchOrigin: { x: number; y: number } | null = null;
 
 // Spacebar pan mode
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space' && !spaceHeld && !(e.target instanceof HTMLInputElement)) {
     spaceHeld = true;
-    document.body.classList.add('tool-pan');
+    canvas.style.cursor = 'grab';
     renderer.setHoverPixel(null);
   }
 });
@@ -83,31 +87,23 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => {
   if (e.code === 'Space') {
     spaceHeld = false;
-    document.body.classList.remove('tool-pan');
-    document.body.classList.add(`tool-${hud.currentTool}`);
+    canvas.style.cursor = 'crosshair';
   }
 });
 
-// Calculate snapped pixel grid coordinate
-function getSnappedWorldPos(clientX: number, clientY: number): { x: number; y: number; size: number } {
+// Calculate snapped 1x1 pixel world position
+function getSnappedWorldPos(clientX: number, clientY: number): { x: number; y: number } {
   const world = viewport.screenToWorld(clientX, clientY);
-  const size = hud.currentPixelSize;
-  const snappedX = Math.floor(world.x / size) * size;
-  const snappedY = Math.floor(world.y / size) * size;
-  return { x: snappedX, y: snappedY, size };
+  return {
+    x: Math.floor(world.x),
+    y: Math.floor(world.y),
+  };
 }
 
 // Paint pixel at snapped position
-function paintPixel(snappedX: number, snappedY: number, size: number): void {
+function paintPixel(snappedX: number, snappedY: number): void {
   const key = `${snappedX},${snappedY}`;
   if (currentBatchPixels.has(key)) return;
-
-  // Ink cost: 0.35 ink per 1x1 pixel unit
-  const cost = 0.35 * (size * size);
-  if (!hud.consumeInk(cost)) {
-    hud.showToast('⚠️ VOID MATTER DEPLETED · REGENERATING...');
-    return;
-  }
 
   if (!currentBatchOrigin) {
     currentBatchOrigin = { x: snappedX, y: snappedY };
@@ -116,8 +112,8 @@ function paintPixel(snappedX: number, snappedY: number, size: number): void {
   const pixelData: PixelData = {
     x: snappedX - currentBatchOrigin.x,
     y: snappedY - currentBatchOrigin.y,
-    color: hud.currentColor,
-    size,
+    color: hud.getColor(),
+    size: 1,
   };
 
   currentBatchPixels.set(key, pixelData);
@@ -136,44 +132,33 @@ function paintPixel(snappedX: number, snappedY: number, size: number): void {
 
 // Mouse Down
 window.addEventListener('mousedown', (e) => {
-  // Ignore clicks outside the canvas (e.g. on HUD toolbar buttons)
-  if ((e.target as HTMLElement).closest('#hud')) return;
+  // Ignore clicks outside the canvas
+  if ((e.target as HTMLElement).closest('#hud-root')) return;
 
   isMouseDown = true;
   lastMouseX = e.clientX;
   lastMouseY = e.clientY;
 
-  // Pan via Middle Click, Space + Click, or Pan Tool
-  if (e.button === 1 || spaceHeld || hud.currentTool === 'pan') {
+  // Pan via Middle Click, Right Click, or Space + Click
+  if (e.button === 1 || e.button === 2 || spaceHeld) {
     isPanning = true;
-    document.body.classList.add('dragging');
+    canvas.style.cursor = 'grabbing';
     return;
   }
 
+  // Left click: draw pixel
   if (e.button === 0) {
-    // Eyedropper Tool
-    if (hud.currentTool === 'picker') {
-      const pickedColor = renderer.getColorAt(e.clientX, e.clientY);
-      hud.setColor(pickedColor);
-      hud.setTool('pencil');
-      hud.showToast(`Picked color: ${pickedColor.toUpperCase()}`);
-      return;
-    }
+    const { x, y } = getSnappedWorldPos(e.clientX, e.clientY);
+    currentBatchPixels.clear();
+    currentBatchOrigin = null;
+    paintPixel(x, y);
+  }
+});
 
-    const { x, y, size } = getSnappedWorldPos(e.clientX, e.clientY);
-
-    // Eraser Tool
-    if (hud.currentTool === 'eraser') {
-      renderer.eraseAt(x, y, size);
-      return;
-    }
-
-    // Pencil Tool
-    if (hud.currentTool === 'pencil') {
-      currentBatchPixels.clear();
-      currentBatchOrigin = null;
-      paintPixel(x, y, size);
-    }
+// Context Menu: Prevent default on canvas to allow right-click pan
+window.addEventListener('contextmenu', (e) => {
+  if ((e.target as HTMLElement).id === 'void-canvas') {
+    e.preventDefault();
   }
 });
 
@@ -191,25 +176,21 @@ window.addEventListener('mousemove', (e) => {
     return;
   }
 
-  const { x, y, size } = getSnappedWorldPos(e.clientX, e.clientY);
+  const { x, y } = getSnappedWorldPos(e.clientX, e.clientY);
 
-  // 2. Drawing / Erasing while dragging
-  if (isMouseDown) {
-    if (hud.currentTool === 'pencil') {
-      paintPixel(x, y, size);
-    } else if (hud.currentTool === 'eraser') {
-      renderer.eraseAt(x, y, size);
-    }
+  // 2. Drawing while dragging
+  if (isMouseDown && !spaceHeld) {
+    paintPixel(x, y);
   }
 
-  // 3. Hover indicator (crosshair pixel cell preview)
-  if (!spaceHeld && (hud.currentTool === 'pencil' || hud.currentTool === 'eraser')) {
+  // 3. Hover indicator
+  if (!spaceHeld) {
     renderer.setHoverPixel({
       worldX: x,
       worldY: y,
-      size,
-      color: hud.currentColor,
-      isEraser: hud.currentTool === 'eraser',
+      size: 1,
+      color: hud.getColor(),
+      isEraser: false,
     });
   } else {
     renderer.setHoverPixel(null);
@@ -220,10 +201,10 @@ window.addEventListener('mousemove', (e) => {
 window.addEventListener('mouseup', () => {
   if (isPanning) {
     isPanning = false;
-    document.body.classList.remove('dragging');
+    canvas.style.cursor = spaceHeld ? 'grab' : 'crosshair';
   }
 
-  if (isMouseDown && hud.currentTool === 'pencil' && currentBatchPixels.size > 0 && currentBatchOrigin) {
+  if (isMouseDown && currentBatchPixels.size > 0 && currentBatchOrigin) {
     const batch: PixelBatchElement = {
       id: crypto.randomUUID(),
       type: 'pixel_batch',
@@ -266,15 +247,15 @@ window.addEventListener(
 
     onViewportChanged();
 
-    // Refresh hover pixel position under new zoom
-    const { x, y, size } = getSnappedWorldPos(e.clientX, e.clientY);
-    if (!spaceHeld && (hud.currentTool === 'pencil' || hud.currentTool === 'eraser')) {
+    // Refresh hover position under new zoom
+    const { x, y } = getSnappedWorldPos(e.clientX, e.clientY);
+    if (!spaceHeld) {
       renderer.setHoverPixel({
         worldX: x,
         worldY: y,
-        size,
-        color: hud.currentColor,
-        isEraser: hud.currentTool === 'eraser',
+        size: 1,
+        color: hud.getColor(),
+        isEraser: false,
       });
     }
   },
