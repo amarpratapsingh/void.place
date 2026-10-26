@@ -15,6 +15,7 @@ export class CanvasRenderer {
   private viewport: ViewportManager;
   private elements: Map<string, CanvasElement> = new Map();
   private animFrameId: number | null = null;
+  private dpr: number = window.devicePixelRatio || 1;
 
   public showGrid: boolean = true;
   private hoverPixel: HoverPixelInfo | null = null;
@@ -27,18 +28,24 @@ export class CanvasRenderer {
       this.canvas = document.createElement('canvas');
       canvasOrContainer.appendChild(this.canvas);
     }
-    this.canvas.width = window.innerWidth;
-    this.canvas.height = window.innerHeight;
 
     const context = this.canvas.getContext('2d', { willReadFrequently: true });
     if (!context) throw new Error('Could not get 2D canvas context');
     this.ctx = context;
 
+    this.resize();
     window.addEventListener('resize', () => {
-      this.canvas.width = window.innerWidth;
-      this.canvas.height = window.innerHeight;
-      this.render();
+      this.resize();
     });
+  }
+
+  private resize(): void {
+    this.dpr = window.devicePixelRatio || 1;
+    this.canvas.width = Math.floor(window.innerWidth * this.dpr);
+    this.canvas.height = Math.floor(window.innerHeight * this.dpr);
+    this.canvas.style.width = `${window.innerWidth}px`;
+    this.canvas.style.height = `${window.innerHeight}px`;
+    this.render();
   }
 
   public addElement(element: CanvasElement): void {
@@ -54,11 +61,17 @@ export class CanvasRenderer {
   }
 
   public render(): void {
-    const { width, height } = this.canvas;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
     const ctx = this.ctx;
+    const bounds = this.viewport.getBounds();
+
+    ctx.save();
+    // High-DPI hardware scaling
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
     // 1. Deep Abyssal Cosmic Void
-    ctx.fillStyle = '#040609';
+    ctx.fillStyle = '#070709';
     ctx.fillRect(0, 0, width, height);
 
     // 2. Cosmic Background Parallax Stars & Nebula Dust
@@ -70,8 +83,19 @@ export class CanvasRenderer {
     // 4. The Singularity (Origin 0,0 Celestial Monument)
     this.drawSingularity(ctx);
 
-    // 5. Draw Canvas Elements (Pixel Batches & Strokes)
+    // 5. Draw Canvas Elements with Viewport Frustum Culling
     for (const el of this.elements.values()) {
+      if (el.bounds) {
+        if (
+          el.bounds.maxX < bounds.minX ||
+          el.bounds.minX > bounds.maxX ||
+          el.bounds.maxY < bounds.minY ||
+          el.bounds.minY > bounds.maxY
+        ) {
+          continue; // Culled: completely off-screen
+        }
+      }
+
       if (el.type === 'pixel_batch') {
         this.drawPixelBatch(ctx, el as PixelBatchElement);
       } else if (el.type === 'stroke') {
@@ -88,6 +112,8 @@ export class CanvasRenderer {
     if (this.hoverPixel) {
       this.drawHoverIndicator(ctx, this.hoverPixel);
     }
+
+    ctx.restore();
   }
 
   /**
@@ -161,18 +187,32 @@ export class CanvasRenderer {
   }
 
   private drawPixelBatch(ctx: CanvasRenderingContext2D, el: PixelBatchElement): void {
+    // Group pixels by color to minimize fillStyle pipeline switching
+    const byColor = new Map<string, typeof el.pixels>();
     for (let i = 0; i < el.pixels.length; i++) {
       const p = el.pixels[i];
-      const screen = this.viewport.worldToScreen(el.x + p.x, el.y + p.y);
-      const pixelSize = Math.max(1, p.size * this.viewport.zoom);
+      let group = byColor.get(p.color);
+      if (!group) {
+        group = [];
+        byColor.set(p.color, group);
+      }
+      group.push(p);
+    }
 
-      ctx.fillStyle = p.color;
-      ctx.fillRect(
-        Math.floor(screen.x),
-        Math.floor(screen.y),
-        Math.ceil(pixelSize),
-        Math.ceil(pixelSize)
-      );
+    for (const [color, pixels] of byColor.entries()) {
+      ctx.fillStyle = color;
+      for (let i = 0; i < pixels.length; i++) {
+        const p = pixels[i];
+        const screen = this.viewport.worldToScreen(el.x + p.x, el.y + p.y);
+        const pixelSize = Math.max(1, p.size * this.viewport.zoom);
+
+        ctx.fillRect(
+          Math.floor(screen.x),
+          Math.floor(screen.y),
+          Math.ceil(pixelSize),
+          Math.ceil(pixelSize)
+        );
+      }
     }
   }
 

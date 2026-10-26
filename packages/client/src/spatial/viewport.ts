@@ -51,7 +51,7 @@ export class ViewportManager {
   }
 
   public getCurrentCenterSector(): string {
-    return toSectorKey(this.x, this.y, Math.log2(this.zoom));
+    return toSectorKey(this.x, this.y);
   }
 
   /**

@@ -2,7 +2,7 @@ import { ViewportManager } from './spatial/viewport';
 import { CanvasRenderer } from './canvas/renderer';
 import { HUD } from './ui/hud';
 import { SectorSyncManager } from './sync/client-room';
-import { PixelBatchElement, PixelData, parseSectorKey, DiveTarget } from '@void-place/shared';
+import { PixelBatchElement, PixelData, parseSectorKey, DiveTarget, computePixelBatchBounds } from '@void-place/shared';
 
 const canvas = document.getElementById('void-canvas') as HTMLCanvasElement;
 const viewport = new ViewportManager();
@@ -126,6 +126,7 @@ function paintPixel(snappedX: number, snappedY: number): void {
     y: currentBatchOrigin.y,
     zoom: Math.log2(viewport.zoom),
     createdAt: Date.now(),
+    bounds: computePixelBatchBounds(currentBatchOrigin.x, currentBatchOrigin.y, [pixelData]),
     pixels: [pixelData],
   });
 }
@@ -205,6 +206,7 @@ window.addEventListener('mouseup', () => {
   }
 
   if (isMouseDown && currentBatchPixels.size > 0 && currentBatchOrigin) {
+    const pixels = Array.from(currentBatchPixels.values());
     const batch: PixelBatchElement = {
       id: crypto.randomUUID(),
       type: 'pixel_batch',
@@ -212,7 +214,8 @@ window.addEventListener('mouseup', () => {
       y: currentBatchOrigin.y,
       zoom: Math.log2(viewport.zoom),
       createdAt: Date.now(),
-      pixels: Array.from(currentBatchPixels.values()),
+      bounds: computePixelBatchBounds(currentBatchOrigin.x, currentBatchOrigin.y, pixels),
+      pixels,
     };
 
     const sectorKey = viewport.getCurrentCenterSector();

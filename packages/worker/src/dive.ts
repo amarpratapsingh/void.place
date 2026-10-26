@@ -18,11 +18,12 @@ export async function handleDive(env: Env): Promise<Response> {
       if (result) {
         const parsed = parseSectorKey(result.key);
         if (parsed) {
-          const size = getSectorSize(parsed.zoomLevel);
+          const zoom = parsed.zoomLevel ?? 0;
+          const size = getSectorSize(zoom);
           target = {
             x: parsed.sectorX * size + size / 2,
             y: parsed.sectorY * size + size / 2,
-            zoom: parsed.zoomLevel,
+            zoom,
             sectorKey: result.key,
             description: `A sector with ${result.element_count} creations`,
           };

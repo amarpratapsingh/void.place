@@ -29,9 +29,18 @@ export class SectorRoom implements DurableObject {
     this.env = env;
 
     this.state.blockConcurrencyWhile(async () => {
-      const stored = await this.state.storage.get<Record<string, CanvasElement>>('elements');
-      if (stored) {
-        this.elements = new Map(Object.entries(stored));
+      // Load elements via granular key listing
+      const listed = await this.state.storage.list<CanvasElement>({ prefix: 'el:' });
+      if (listed.size > 0) {
+        for (const [key, el] of listed.entries()) {
+          this.elements.set(key.replace(/^el:/, ''), el);
+        }
+      } else {
+        // Backward compatibility: check legacy bulk storage
+        const legacy = await this.state.storage.get<Record<string, CanvasElement>>('elements');
+        if (legacy) {
+          this.elements = new Map(Object.entries(legacy));
+        }
       }
       this.sectorKey = (await this.state.storage.get<string>('sectorKey')) || '';
     });
@@ -103,7 +112,10 @@ export class SectorRoom implements DurableObject {
           // 3. Prevent memory exhaustion: prune oldest if beyond sector limit
           if (this.elements.size >= MAX_ELEMENTS_PER_SECTOR) {
             const oldestKey = this.elements.keys().next().value;
-            if (oldestKey) this.elements.delete(oldestKey);
+            if (oldestKey) {
+              this.elements.delete(oldestKey);
+              await this.state.storage.delete(`el:${oldestKey}`);
+            }
           }
 
           this.elements.set(element.id, element);
@@ -117,8 +129,8 @@ export class SectorRoom implements DurableObject {
             ws
           );
 
-          // Persist state
-          await this.state.storage.put('elements', Object.fromEntries(this.elements));
+          // Granular O(1) key-value persistence
+          await this.state.storage.put(`el:${element.id}`, element);
 
           // Register sector activity in D1 for the Dive button
           await this.recordSectorActivity();

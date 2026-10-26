@@ -27,6 +27,13 @@ export interface SectorInfo {
   elementCount: number;
 }
 
+export interface BoundingBox {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
 export type ElementType = 'stroke' | 'text' | 'image' | 'embedded-link' | 'pixel_batch';
 
 export interface BaseCanvasElement {
@@ -37,6 +44,7 @@ export interface BaseCanvasElement {
   zoom: number;
   createdAt: number;
   authorId?: string;
+  bounds?: BoundingBox;
 }
 
 export interface StrokeElement extends BaseCanvasElement {

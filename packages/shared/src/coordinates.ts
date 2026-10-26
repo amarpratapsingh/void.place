@@ -1,4 +1,4 @@
-import { Coordinate, Viewport, SectorKey } from './types';
+import { Coordinate, Viewport, SectorKey, BoundingBox, PixelData } from './types';
 
 // Sector size in coordinate units at base zoom level 0
 export const BASE_SECTOR_SIZE = 1024;
@@ -12,27 +12,80 @@ export function getSectorSize(zoomLevel: number): number {
 }
 
 /**
- * Derives a deterministic sector key from world coordinates and zoom.
+ * Derives a deterministic sector key from world coordinates.
+ * When zoomLevel is omitted, generates canonical world-space sector keys (sector:x{sx}:y{sy})
+ * ensuring all users viewing the same coordinates connect to the same real-time sector room.
  */
-export function toSectorKey(x: number, y: number, zoomLevel: number): SectorKey {
-  const discreteZoom = Math.floor(zoomLevel);
-  const size = getSectorSize(discreteZoom);
-  const sx = Math.floor(x / size);
-  const sy = Math.floor(y / size);
-  return `sector:z${discreteZoom}:x${sx}:y${sy}`;
+export function toSectorKey(x: number, y: number, zoomLevel?: number): SectorKey {
+  if (zoomLevel !== undefined) {
+    const discreteZoom = Math.floor(zoomLevel);
+    const size = getSectorSize(discreteZoom);
+    const sx = Math.floor(x / size);
+    const sy = Math.floor(y / size);
+    return `sector:z${discreteZoom}:x${sx}:y${sy}`;
+  }
+  const sx = Math.floor(x / BASE_SECTOR_SIZE);
+  const sy = Math.floor(y / BASE_SECTOR_SIZE);
+  return `sector:x${sx}:y${sy}`;
 }
 
 /**
  * Parses a sector key back into discrete coordinates.
+ * Supports both canonical (sector:x:y) and zoom-specific (sector:z:x:y) keys.
  */
-export function parseSectorKey(key: SectorKey): { zoomLevel: number; sectorX: number; sectorY: number } | null {
-  const match = key.match(/^sector:z(-?\d+):x(-?\d+):y(-?\d+)$/);
-  if (!match) return null;
-  return {
-    zoomLevel: parseInt(match[1], 10),
-    sectorX: parseInt(match[2], 10),
-    sectorY: parseInt(match[3], 10),
-  };
+export function parseSectorKey(key: SectorKey): { zoomLevel?: number; sectorX: number; sectorY: number } | null {
+  const matchWithZoom = key.match(/^sector:z(-?\d+):x(-?\d+):y(-?\d+)$/);
+  if (matchWithZoom) {
+    return {
+      zoomLevel: parseInt(matchWithZoom[1], 10),
+      sectorX: parseInt(matchWithZoom[2], 10),
+      sectorY: parseInt(matchWithZoom[3], 10),
+    };
+  }
+
+  const matchCanonical = key.match(/^sector:x(-?\d+):y(-?\d+)$/);
+  if (matchCanonical) {
+    return {
+      sectorX: parseInt(matchCanonical[1], 10),
+      sectorY: parseInt(matchCanonical[2], 10),
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Computes tight axis-aligned bounding box for a batch of pixels.
+ */
+export function computePixelBatchBounds(originX: number, originY: number, pixels: PixelData[]): BoundingBox {
+  if (!pixels || pixels.length === 0) {
+    return { minX: originX, minY: originY, maxX: originX, maxY: originY };
+  }
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (let i = 0; i < pixels.length; i++) {
+    const p = pixels[i];
+    const px = originX + p.x;
+    const py = originY + p.y;
+    const sz = p.size || 1;
+    if (px < minX) minX = px;
+    if (py < minY) minY = py;
+    if (px + sz > maxX) maxX = px + sz;
+    if (py + sz > maxY) maxY = py + sz;
+  }
+
+  return { minX, minY, maxX, maxY };
+}
+
+/**
+ * Checks whether two 2D axis-aligned bounding boxes overlap.
+ */
+export function isBoxIntersecting(a: BoundingBox, b: BoundingBox): boolean {
+  return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
 }
 
 /**
