@@ -123,6 +123,147 @@ canvas#void-canvas {
   color: var(--text-muted);
 }
 
+.coord-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.coord-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.icon-btn-inline {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.15s ease;
+}
+.icon-btn-inline:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.1);
+}
+.icon-btn-inline.copied {
+  color: var(--success);
+}
+
+/* Coordinate Jump & Custom Input Popover */
+.coord-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  padding: 12px 14px;
+  min-width: 250px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 30;
+  border: 1px solid var(--glass-highlight);
+  animation: popoverFadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes popoverFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.popover-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.popover-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+}
+.popover-close:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.popover-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.input-group label {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-muted);
+}
+.input-group input {
+  width: 100%;
+  padding: 6px 8px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.input-group input:focus {
+  border-color: var(--accent);
+}
+
+.popover-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+}
+.btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
 /* Action Buttons (Top Right) */
 .hud-actions {
   display: flex;

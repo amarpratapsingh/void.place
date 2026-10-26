@@ -21,8 +21,15 @@ export class HUD {
   private sectorEl!: HTMLElement;
   private zoomEl!: HTMLElement;
   private onlineEl!: HTMLElement;
+  private coordPopover!: HTMLElement;
+  private inputX!: HTMLInputElement;
+  private inputY!: HTMLInputElement;
+  private copyBtn!: HTMLButtonElement;
   private activeColor: string = DEFAULT_PALETTE[12]; // Indigo default
   private callbacks: HUDCallbacks;
+
+  public currentX: number = 0;
+  public currentY: number = 0;
 
   constructor(rootElement: HTMLElement, callbacks: HUDCallbacks = {}) {
     this.root = rootElement;
@@ -35,13 +42,46 @@ export class HUD {
     this.root.innerHTML = `
       <!-- Top Bar -->
       <div class="hud-top">
-        <div class="glass-panel status-pill hud-interactive">
-          <div class="status-dot" id="hud-status-dot" title="Connection Status"></div>
-          <span class="coord-badge" id="hud-coords" title="Click to jump to coordinates">X: 0, Y: 0</span>
-          <div class="divider"></div>
-          <span class="sector-badge" id="hud-sector">SEC 0:0</span>
-          <div class="divider"></div>
-          <span class="sector-badge" id="hud-online">1 online</span>
+        <div class="coord-container hud-interactive">
+          <div class="glass-panel status-pill">
+            <div class="status-dot" id="hud-status-dot" title="Connection Status"></div>
+            <div class="coord-wrapper">
+              <span class="coord-badge" id="hud-coords" title="Click to enter custom coordinates">X: 0, Y: 0</span>
+              <button class="icon-btn-inline" id="hud-copy-coords" title="Copy coordinates">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>
+            </div>
+            <div class="divider"></div>
+            <span class="sector-badge" id="hud-sector">SEC 0:0</span>
+            <div class="divider"></div>
+            <span class="sector-badge" id="hud-online">1 online</span>
+          </div>
+
+          <!-- Custom Coordinates & Jump Popover -->
+          <div class="glass-panel coord-popover" id="hud-coord-popover" style="display: none;">
+            <div class="popover-header">
+              <span>Go to Coordinates</span>
+              <button class="popover-close" id="hud-popover-close" title="Close (Esc)">✕</button>
+            </div>
+            <div class="popover-inputs">
+              <div class="input-group">
+                <label for="hud-input-x">X Coordinate</label>
+                <input type="number" id="hud-input-x" value="0" step="1" />
+              </div>
+              <div class="input-group">
+                <label for="hud-input-y">Y Coordinate</label>
+                <input type="number" id="hud-input-y" value="0" step="1" />
+              </div>
+            </div>
+            <div class="popover-actions">
+              <button class="btn-sm btn-secondary" id="hud-popover-copy-link" title="Copy coordinates to clipboard">Copy Coords</button>
+              <button class="btn-sm btn-secondary" id="hud-popover-origin" title="Jump to center (0,0)">Origin [0,0]</button>
+              <button class="btn-sm btn-primary" id="hud-popover-go">Jump</button>
+            </div>
+          </div>
         </div>
 
         <div class="hud-actions hud-interactive">
@@ -91,6 +131,10 @@ export class HUD {
     this.sectorEl = this.root.querySelector('#hud-sector')!;
     this.zoomEl = this.root.querySelector('#hud-zoom-readout')!;
     this.onlineEl = this.root.querySelector('#hud-online')!;
+    this.coordPopover = this.root.querySelector('#hud-coord-popover')!;
+    this.inputX = this.root.querySelector('#hud-input-x') as HTMLInputElement;
+    this.inputY = this.root.querySelector('#hud-input-y') as HTMLInputElement;
+    this.copyBtn = this.root.querySelector('#hud-copy-coords') as HTMLButtonElement;
 
     this.attachListeners();
   }
@@ -121,20 +165,132 @@ export class HUD {
     this.root.querySelector('#hud-zoom-out')?.addEventListener('click', () => this.callbacks.onZoomOut?.());
     this.zoomEl.addEventListener('click', () => this.callbacks.onResetZoom?.());
 
-    // Coordinate Jump Prompt
-    this.coordEl.addEventListener('click', () => {
-      const input = prompt('Jump to coordinates (X, Y):', '0, 0');
-      if (!input) return;
-      const parts = input.split(',').map((s) => parseInt(s.trim(), 10));
-      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
-        this.callbacks.onJumpToCoords?.(parts[0], parts[1]);
+    // Quick Copy Coordinates Button
+    this.copyBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.copyCurrentCoords();
+    });
+
+    // Toggle Coordinates Popover on Click
+    this.coordEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleCoordPopover();
+    });
+
+    // Popover Close Button
+    this.root.querySelector('#hud-popover-close')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.closeCoordPopover();
+    });
+
+    // Popover Jump Action
+    const handleJump = () => {
+      const x = parseInt(this.inputX.value, 10);
+      const y = parseInt(this.inputY.value, 10);
+      if (!isNaN(x) && !isNaN(y)) {
+        this.callbacks.onJumpToCoords?.(x, y);
+        this.closeCoordPopover();
+      }
+    };
+
+    this.root.querySelector('#hud-popover-go')?.addEventListener('click', handleJump);
+
+    // Popover Jump to Origin
+    this.root.querySelector('#hud-popover-origin')?.addEventListener('click', () => {
+      this.inputX.value = '0';
+      this.inputY.value = '0';
+      handleJump();
+    });
+
+    // Popover Copy Coords Action
+    this.root.querySelector('#hud-popover-copy-link')?.addEventListener('click', (e) => {
+      const btn = e.currentTarget as HTMLElement;
+      const textToCopy = `X: ${this.inputX.value}, Y: ${this.inputY.value}`;
+      navigator.clipboard.writeText(textToCopy).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = '✓ Copied!';
+        setTimeout(() => {
+          btn.textContent = orig;
+        }, 1500);
+      }).catch(() => {
+        prompt('Coordinates:', textToCopy);
+      });
+    });
+
+    // Enter Key in Popover inputs to Jump immediately
+    [this.inputX, this.inputY].forEach((input) => {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          handleJump();
+        } else if (e.key === 'Escape') {
+          this.closeCoordPopover();
+        }
+      });
+    });
+
+    // Close popover when clicking anywhere outside
+    document.addEventListener('click', (e) => {
+      if (
+        this.coordPopover.style.display !== 'none' &&
+        !this.coordPopover.contains(e.target as Node) &&
+        !this.coordEl.contains(e.target as Node)
+      ) {
+        this.closeCoordPopover();
       }
     });
   }
 
+  private copyCurrentCoords() {
+    const text = `X: ${this.currentX}, Y: ${this.currentY}`;
+    navigator.clipboard.writeText(text).then(() => {
+      this.copyBtn.classList.add('copied');
+      this.copyBtn.innerHTML = `
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      `;
+      setTimeout(() => {
+        this.copyBtn.classList.remove('copied');
+        this.copyBtn.innerHTML = `
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+        `;
+      }, 1500);
+    }).catch(() => {
+      prompt('Coordinates:', text);
+    });
+  }
+
+  public toggleCoordPopover() {
+    if (this.coordPopover.style.display === 'none') {
+      this.openCoordPopover();
+    } else {
+      this.closeCoordPopover();
+    }
+  }
+
+  public openCoordPopover() {
+    this.inputX.value = this.currentX.toString();
+    this.inputY.value = this.currentY.toString();
+    this.coordPopover.style.display = 'flex';
+    setTimeout(() => {
+      this.inputX.focus();
+      this.inputX.select();
+    }, 50);
+  }
+
+  public closeCoordPopover() {
+    this.coordPopover.style.display = 'none';
+  }
+
   private bindShortcuts() {
     window.addEventListener('keydown', (e) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        if (e.key === 'Escape') this.closeCoordPopover();
+        return;
+      }
       if (e.key.toLowerCase() === 'h') {
         this.root.style.opacity = this.root.style.opacity === '0' ? '1' : '0';
       }
@@ -155,7 +311,9 @@ export class HUD {
   }
 
   public updatePosition(worldX: number, worldY: number, sectorX: number, sectorY: number) {
-    this.coordEl.textContent = `X: ${Math.floor(worldX)}, Y: ${Math.floor(worldY)}`;
+    this.currentX = Math.floor(worldX);
+    this.currentY = Math.floor(worldY);
+    this.coordEl.textContent = `X: ${this.currentX}, Y: ${this.currentY}`;
     this.sectorEl.textContent = `SEC ${sectorX}:${sectorY}`;
   }
 
