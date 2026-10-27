@@ -55,7 +55,7 @@ export class HUD {
               </button>
             </div>
             <div class="divider"></div>
-            <span class="sector-badge" id="hud-sector">SEC 0:0</span>
+            <span class="sector-badge" id="hud-sector">Sector 0, 0</span>
             <div class="divider"></div>
             <span class="sector-badge" id="hud-online">1 online</span>
           </div>
@@ -68,17 +68,17 @@ export class HUD {
             </div>
             <div class="popover-inputs">
               <div class="input-group">
-                <label for="hud-input-x">X Coordinate</label>
+                <label for="hud-input-x">X</label>
                 <input type="number" id="hud-input-x" value="0" step="1" />
               </div>
               <div class="input-group">
-                <label for="hud-input-y">Y Coordinate</label>
+                <label for="hud-input-y">Y</label>
                 <input type="number" id="hud-input-y" value="0" step="1" />
               </div>
             </div>
             <div class="popover-actions">
-              <button class="btn-sm btn-secondary" id="hud-popover-copy-link" title="Copy coordinates to clipboard">Copy Coords</button>
-              <button class="btn-sm btn-secondary" id="hud-popover-origin" title="Jump to center (0,0)">Origin [0,0]</button>
+              <button class="btn-sm btn-secondary" id="hud-popover-copy-link" title="Copy coordinates to clipboard">Copy</button>
+              <button class="btn-sm btn-secondary" id="hud-popover-origin" title="Jump to center (0,0)">Center (0,0)</button>
               <button class="btn-sm btn-primary" id="hud-popover-go">Jump</button>
             </div>
           </div>
@@ -314,7 +314,7 @@ export class HUD {
     this.currentX = Math.floor(worldX);
     this.currentY = Math.floor(worldY);
     this.coordEl.textContent = `X: ${this.currentX}, Y: ${this.currentY}`;
-    this.sectorEl.textContent = `SEC ${sectorX}:${sectorY}`;
+    this.sectorEl.textContent = `Sector ${sectorX}, ${sectorY}`;
   }
 
   public updateZoom(scale: number) {
