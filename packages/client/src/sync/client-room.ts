@@ -1,6 +1,7 @@
 import { CanvasElement } from '@void-place/shared';
 
 export type OnElementCallback = (element: CanvasElement) => void;
+export type OnEraseCallback = (areas: Array<{ x: number; y: number; size: number }>) => void;
 export type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
 
 export class SectorSyncManager {
@@ -8,11 +9,17 @@ export class SectorSyncManager {
   private activeWs: WebSocket | null = null;
   private onElementAdded: OnElementCallback;
   private onStatusChange?: (status: ConnectionStatus) => void;
+  private onErase?: OnEraseCallback;
   private debounceTimer: number | null = null;
 
-  constructor(onElementAdded: OnElementCallback, onStatusChange?: (status: ConnectionStatus) => void) {
+  constructor(
+    onElementAdded: OnElementCallback,
+    onStatusChange?: (status: ConnectionStatus) => void,
+    onErase?: OnEraseCallback
+  ) {
     this.onElementAdded = onElementAdded;
     this.onStatusChange = onStatusChange;
+    this.onErase = onErase;
   }
 
   /**
@@ -72,6 +79,8 @@ export class SectorSyncManager {
           data.elements.forEach(this.onElementAdded);
         } else if (data.type === 'element:added' && data.element) {
           this.onElementAdded(data.element);
+        } else if (data.type === 'element:erased' && Array.isArray(data.areas)) {
+          this.onErase?.(data.areas);
         }
       } catch (e) {
         console.error('Failed to parse websocket message', e);
@@ -93,6 +102,12 @@ export class SectorSyncManager {
   public sendElement(sectorKey: string, element: CanvasElement): void {
     if (this.activeWs && this.activeWs.readyState === WebSocket.OPEN) {
       this.activeWs.send(JSON.stringify({ type: 'element:add', element }));
+    }
+  }
+
+  public sendErase(sectorKey: string, areas: Array<{ x: number; y: number; size: number }>): void {
+    if (this.activeWs && this.activeWs.readyState === WebSocket.OPEN) {
+      this.activeWs.send(JSON.stringify({ type: 'element:erase', areas }));
     }
   }
 }

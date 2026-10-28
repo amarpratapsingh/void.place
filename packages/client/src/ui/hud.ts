@@ -1,5 +1,12 @@
+export type ToolMode = 'draw' | 'erase';
+
+export const ERASER_SIZES = [1, 2, 4, 8, 16] as const;
+export type EraserSize = typeof ERASER_SIZES[number];
+
 export interface HUDCallbacks {
   onColorSelect?: (hex: string) => void;
+  onToolSelect?: (tool: ToolMode) => void;
+  onEraserSizeSelect?: (size: number) => void;
   onDiveClick?: () => void;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
@@ -26,6 +33,13 @@ export class HUD {
   private inputY!: HTMLInputElement;
   private copyBtn!: HTMLButtonElement;
   private activeColor: string = DEFAULT_PALETTE[12]; // Indigo default
+  private activeTool: ToolMode = 'draw';
+  private activeEraserSize: number = 4;
+  private toolDrawBtn!: HTMLElement;
+  private toolEraseBtn!: HTMLElement;
+  private toolColorDot!: HTMLElement;
+  private paletteContainer!: HTMLElement;
+  private eraserContainer!: HTMLElement;
   private callbacks: HUDCallbacks;
 
   public currentX: number = 0;
@@ -99,6 +113,27 @@ export class HUD {
       <!-- Bottom Dock -->
       <div class="hud-bottom">
         <div class="glass-panel dock-container hud-interactive">
+          <!-- Tool Switcher -->
+          <div class="tool-switcher" role="group" aria-label="Tools">
+            <button class="tool-btn active" id="hud-tool-draw" title="Pencil / Draw (P or B)" aria-label="Pencil tool">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+                <path d="m15 5 4 4"/>
+              </svg>
+              <span class="tool-color-dot" id="hud-tool-color-indicator" style="background-color: ${this.activeColor}"></span>
+            </button>
+            <button class="tool-btn" id="hud-tool-erase" title="Eraser (E)" aria-label="Eraser tool">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/>
+                <path d="M22 21H7"/>
+                <path d="m5 11 9 9"/>
+              </svg>
+            </button>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Color Palette (shown when Pencil is active) -->
           <div class="palette-grid" id="hud-palette">
             ${DEFAULT_PALETTE.map(
               (color) => `
@@ -113,6 +148,22 @@ export class HUD {
             <label class="custom-color-wrapper" title="Custom Color">
               <input type="color" id="hud-custom-color" value="${this.activeColor}" />
             </label>
+          </div>
+
+          <!-- Eraser Size Control (shown when Eraser is active) -->
+          <div class="eraser-controls" id="hud-eraser-controls" style="display: none;">
+            <span class="eraser-label">Size</span>
+            <div class="size-pills">
+              ${ERASER_SIZES.map(
+                (size) => `
+                <button
+                  class="size-pill ${size === this.activeEraserSize ? 'active' : ''}"
+                  data-size="${size}"
+                  title="${size}px (${size === 1 ? '1' : size === 2 ? '2' : size === 4 ? '3' : size === 8 ? '4' : '5'})"
+                >${size}px</button>
+              `
+              ).join('')}
+            </div>
           </div>
 
           <div class="divider"></div>
@@ -136,16 +187,44 @@ export class HUD {
     this.inputY = this.root.querySelector('#hud-input-y') as HTMLInputElement;
     this.copyBtn = this.root.querySelector('#hud-copy-coords') as HTMLButtonElement;
 
+    this.toolDrawBtn = this.root.querySelector('#hud-tool-draw')!;
+    this.toolEraseBtn = this.root.querySelector('#hud-tool-erase')!;
+    this.toolColorDot = this.root.querySelector('#hud-tool-color-indicator')!;
+    this.paletteContainer = this.root.querySelector('#hud-palette')!;
+    this.eraserContainer = this.root.querySelector('#hud-eraser-controls')!;
+
     this.attachListeners();
   }
 
   private attachListeners() {
+    // Tool buttons
+    this.toolDrawBtn.addEventListener('click', () => {
+      this.setTool('draw');
+    });
+
+    this.toolEraseBtn.addEventListener('click', () => {
+      this.setTool('erase');
+    });
+
+    // Eraser size pills
+    this.eraserContainer.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('.size-pill') as HTMLElement | null;
+      if (!btn || !btn.dataset.size) return;
+      const size = parseInt(btn.dataset.size, 10);
+      if (!isNaN(size)) {
+        this.setEraserSize(size);
+      }
+    });
+
     // Palette swatches
     const palette = this.root.querySelector('#hud-palette')!;
     palette.addEventListener('click', (e) => {
       const target = (e.target as HTMLElement).closest('.color-swatch') as HTMLElement | null;
       if (!target || !target.dataset.color) return;
       this.setColor(target.dataset.color);
+      if (this.activeTool !== 'draw') {
+        this.setTool('draw');
+      }
     });
 
     // Custom color picker
@@ -153,6 +232,9 @@ export class HUD {
     customInput.addEventListener('input', (e) => {
       const val = (e.target as HTMLInputElement).value;
       this.setColor(val, true);
+      if (this.activeTool !== 'draw') {
+        this.setTool('draw');
+      }
     });
 
     // Dive Button
@@ -291,14 +373,89 @@ export class HUD {
         if (e.key === 'Escape') this.closeCoordPopover();
         return;
       }
-      if (e.key.toLowerCase() === 'h') {
+
+      const key = e.key.toLowerCase();
+
+      // Tool Switcher Shortcuts
+      if (key === 'b' || key === 'p') {
+        this.setTool('draw');
+        return;
+      }
+      if (key === 'e') {
+        this.setTool('erase');
+        return;
+      }
+
+      // Variable Eraser Size Shortcuts: [ decreases, ] increases
+      if (e.key === '[') {
+        this.cycleEraserSize(-1);
+        return;
+      }
+      if (e.key === ']') {
+        this.cycleEraserSize(1);
+        return;
+      }
+
+      // Quick Numeric Eraser Size (1 -> 1px, 2 -> 2px, 3 -> 4px, 4 -> 8px, 5 -> 16px)
+      if (this.activeTool === 'erase' && ['1', '2', '3', '4', '5'].includes(e.key)) {
+        const idx = parseInt(e.key, 10) - 1;
+        if (idx >= 0 && idx < ERASER_SIZES.length) {
+          this.setEraserSize(ERASER_SIZES[idx]);
+          return;
+        }
+      }
+
+      if (key === 'h') {
         this.root.style.opacity = this.root.style.opacity === '0' ? '1' : '0';
       }
     });
   }
 
+  public setTool(tool: ToolMode) {
+    this.activeTool = tool;
+    this.toolDrawBtn.classList.toggle('active', tool === 'draw');
+    this.toolEraseBtn.classList.toggle('active', tool === 'erase');
+
+    if (tool === 'draw') {
+      this.paletteContainer.style.display = 'flex';
+      this.eraserContainer.style.display = 'none';
+    } else {
+      this.paletteContainer.style.display = 'none';
+      this.eraserContainer.style.display = 'flex';
+    }
+
+    this.callbacks.onToolSelect?.(tool);
+  }
+
+  public getTool(): ToolMode {
+    return this.activeTool;
+  }
+
+  public setEraserSize(size: number) {
+    this.activeEraserSize = size;
+    this.eraserContainer.querySelectorAll('.size-pill').forEach((el) => {
+      const pill = el as HTMLElement;
+      pill.classList.toggle('active', pill.dataset.size === size.toString());
+    });
+    this.callbacks.onEraserSizeSelect?.(size);
+  }
+
+  public getEraserSize(): number {
+    return this.activeEraserSize;
+  }
+
+  public cycleEraserSize(delta: number) {
+    const idx = ERASER_SIZES.indexOf(this.activeEraserSize as EraserSize);
+    const cur = idx === -1 ? 2 : idx;
+    const nextIdx = Math.max(0, Math.min(ERASER_SIZES.length - 1, cur + delta));
+    this.setEraserSize(ERASER_SIZES[nextIdx]);
+  }
+
   public setColor(color: string, isCustom = false) {
     this.activeColor = color;
+    if (this.toolColorDot) {
+      this.toolColorDot.style.backgroundColor = color;
+    }
     this.root.querySelectorAll('.color-swatch').forEach((el) => {
       const swatch = el as HTMLElement;
       swatch.classList.toggle('active', !isCustom && swatch.dataset.color === color);

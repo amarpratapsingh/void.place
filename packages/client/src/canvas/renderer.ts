@@ -1,4 +1,4 @@
-import { CanvasElement, StrokeElement, PixelBatchElement, PixelData } from '@void-place/shared';
+import { CanvasElement, StrokeElement, PixelBatchElement, PixelData, computePixelBatchBounds } from '@void-place/shared';
 import { ViewportManager } from '../spatial/viewport';
 
 export interface HoverPixelInfo {
@@ -51,6 +51,25 @@ export class CanvasRenderer {
   public addElement(element: CanvasElement): void {
     if (!this.elements.has(element.id)) {
       this.elements.set(element.id, element);
+      this.render();
+    }
+  }
+
+  public removeElement(id: string): void {
+    if (this.elements.delete(id)) {
+      this.render();
+    }
+  }
+
+  public removePreviewElements(): void {
+    let anyRemoved = false;
+    for (const id of this.elements.keys()) {
+      if (id.startsWith('preview_')) {
+        this.elements.delete(id);
+        anyRemoved = true;
+      }
+    }
+    if (anyRemoved) {
       this.render();
     }
   }
@@ -130,30 +149,78 @@ export class CanvasRenderer {
   }
 
   /**
-   * Erases pixels near the given world coordinate.
+   * Erases pixels intersecting the world-space bounding box starting at (startX, startY)
+   * with dimensions size x size.
    */
-  public eraseAt(worldX: number, worldY: number, size: number): boolean {
+  public eraseArea(startX: number, startY: number, size: number): boolean {
     let modified = false;
+    const endX = startX + size;
+    const endY = startY + size;
+
     for (const [id, el] of this.elements.entries()) {
       if (el.type === 'pixel_batch') {
         const batch = el as PixelBatchElement;
         const initialLen = batch.pixels.length;
+
+        // Bounding box culling: skip batch if completely outside eraser box
+        if (el.bounds) {
+          if (
+            el.bounds.maxX <= startX ||
+            el.bounds.minX >= endX ||
+            el.bounds.maxY <= startY ||
+            el.bounds.minY >= endY
+          ) {
+            continue;
+          }
+        }
+
         batch.pixels = batch.pixels.filter((p) => {
           const px = el.x + p.x;
           const py = el.y + p.y;
-          return Math.hypot(px - worldX, py - worldY) > Math.max(1, size);
+          const psz = p.size || 1;
+          // AABB intersection check
+          const intersects =
+            px + psz > startX &&
+            px < endX &&
+            py + psz > startY &&
+            py < endY;
+          return !intersects;
         });
 
         if (batch.pixels.length === 0) {
           this.elements.delete(id);
           modified = true;
         } else if (batch.pixels.length !== initialLen) {
+          batch.bounds = computePixelBatchBounds(el.x, el.y, batch.pixels);
           modified = true;
         }
       }
     }
+
     if (modified) this.render();
     return modified;
+  }
+
+  /**
+   * Erases multiple areas at once (e.g. from network synchronization or drag strokes).
+   */
+  public eraseAreas(areas: Array<{ x: number; y: number; size: number }>): boolean {
+    let anyModified = false;
+    for (let i = 0; i < areas.length; i++) {
+      const a = areas[i];
+      if (this.eraseArea(a.x, a.y, a.size || 1)) {
+        anyModified = true;
+      }
+    }
+    return anyModified;
+  }
+
+  /**
+   * Backward-compatible eraseAt centered around (worldX, worldY).
+   */
+  public eraseAt(worldX: number, worldY: number, size: number): boolean {
+    const half = Math.floor(size / 2);
+    return this.eraseArea(worldX - half, worldY - half, size);
   }
 
   private drawPixelBatch(ctx: CanvasRenderingContext2D, el: PixelBatchElement): void {
@@ -216,37 +283,47 @@ export class CanvasRenderer {
   }
 
   /**
-   * Hover indicator previewing the pixel in the user's selected paint color.
+   * Hover indicator previewing the pixel in the user's selected paint color or eraser box.
    */
   private drawHoverIndicator(ctx: CanvasRenderingContext2D, hover: HoverPixelInfo): void {
     const screen = this.viewport.worldToScreen(hover.worldX, hover.worldY);
     const pixelSize = Math.max(1, hover.size * this.viewport.zoom);
+    const screenX = Math.floor(screen.x);
+    const screenY = Math.floor(screen.y);
+    const boxSize = Math.ceil(pixelSize);
 
     ctx.save();
     if (hover.isEraser) {
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.3)';
+      // Clean drafting eraser preview: light coral wash with crisp red drafting edge
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.16)';
+      ctx.fillRect(screenX, screenY, boxSize, boxSize);
+
       ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(screenX + 0.5, screenY + 0.5, boxSize, boxSize);
+
+      // Fine center crosshair if eraser preview is large enough
+      if (boxSize >= 22) {
+        const cx = screenX + boxSize / 2;
+        const cy = screenY + boxSize / 2;
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.65)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx - 3, cy); ctx.lineTo(cx + 3, cy);
+        ctx.moveTo(cx, cy - 3); ctx.lineTo(cx, cy + 3);
+        ctx.stroke();
+      }
     } else {
       ctx.fillStyle = hover.color;
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+
+      ctx.globalAlpha = 0.75;
+      ctx.fillRect(screenX, screenY, boxSize, boxSize);
+
+      ctx.globalAlpha = 1.0;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(screenX + 0.5, screenY + 0.5, boxSize, boxSize);
     }
-
-    ctx.globalAlpha = 0.75;
-    ctx.fillRect(
-      Math.floor(screen.x),
-      Math.floor(screen.y),
-      Math.ceil(pixelSize),
-      Math.ceil(pixelSize)
-    );
-
-    ctx.globalAlpha = 1.0;
-    ctx.lineWidth = 1;
-    ctx.strokeRect(
-      Math.floor(screen.x) + 0.5,
-      Math.floor(screen.y) + 0.5,
-      Math.ceil(pixelSize),
-      Math.ceil(pixelSize)
-    );
 
     ctx.restore();
   }

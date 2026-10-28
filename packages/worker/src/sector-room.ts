@@ -1,4 +1,4 @@
-import { CanvasElement, SectorKey, StrokeElement } from '@void-place/shared';
+import { CanvasElement, SectorKey, StrokeElement, PixelBatchElement, computePixelBatchBounds } from '@void-place/shared';
 
 export interface Env {
   SECTOR_ROOMS: DurableObjectNamespace;
@@ -134,6 +134,78 @@ export class SectorRoom implements DurableObject {
 
           // Register sector activity in D1 for the Dive button
           await this.recordSectorActivity();
+        }
+
+        if (msg.type === 'element:erase') {
+          if (!this.checkRateLimit(ws)) {
+            ws.send(
+              JSON.stringify({
+                type: 'error:ratelimit',
+                message: 'Rate limit exceeded. Slow down your actions.',
+              })
+            );
+            return;
+          }
+
+          const areas = msg.areas as Array<{ x: number; y: number; size: number }>;
+          if (!Array.isArray(areas) || areas.length === 0 || areas.length > 2000) {
+            return;
+          }
+
+          let anyModified = false;
+
+          for (const [id, el] of this.elements.entries()) {
+            if (el.type === 'pixel_batch') {
+              const batch = el as PixelBatchElement;
+              const initialCount = batch.pixels.length;
+
+              batch.pixels = batch.pixels.filter((p) => {
+                const px = el.x + p.x;
+                const py = el.y + p.y;
+                const psz = p.size || 1;
+
+                for (let i = 0; i < areas.length; i++) {
+                  const area = areas[i];
+                  const ax = area.x;
+                  const ay = area.y;
+                  const asz = area.size || 1;
+
+                  if (
+                    px + psz > ax &&
+                    px < ax + asz &&
+                    py + psz > ay &&
+                    py < ay + asz
+                  ) {
+                    return false;
+                  }
+                }
+                return true;
+              });
+
+              if (batch.pixels.length === 0) {
+                this.elements.delete(id);
+                await this.state.storage.delete(`el:${id}`);
+                anyModified = true;
+              } else if (batch.pixels.length !== initialCount) {
+                batch.bounds = computePixelBatchBounds(el.x, el.y, batch.pixels);
+                await this.state.storage.put(`el:${id}`, batch);
+                anyModified = true;
+              }
+            }
+          }
+
+          // Broadcast to other peers in this sector
+          this.broadcast(
+            JSON.stringify({
+              type: 'element:erased',
+              areas,
+            }),
+            ws
+          );
+
+          if (anyModified) {
+            await this.recordSectorActivity();
+          }
         }
       } catch (err) {
         console.error('Error handling WebSocket message', err);
