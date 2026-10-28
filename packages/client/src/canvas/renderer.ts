@@ -70,8 +70,8 @@ export class CanvasRenderer {
     // High-DPI hardware pixel scaling
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
-    // 1. Artist Canvas Surface (Neutral Studio Dark)
-    ctx.fillStyle = '#0f1013';
+    // 1. Artist Canvas Surface (Clean White Art Canvas)
+    ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
 
     // 2. Drafting Canvas Grid
@@ -197,7 +197,7 @@ export class CanvasRenderer {
     const startY = (height / 2 - this.viewport.y * this.viewport.zoom) % step;
 
     ctx.save();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
     ctx.lineWidth = 1;
 
     ctx.beginPath();
@@ -228,7 +228,7 @@ export class CanvasRenderer {
       ctx.strokeStyle = '#ef4444';
     } else {
       ctx.fillStyle = hover.color;
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
     }
 
     ctx.globalAlpha = 0.75;
@@ -273,19 +273,19 @@ export class CanvasRenderer {
     // Center ring
     ctx.beginPath();
     ctx.arc(0, 0, Math.max(4, Math.min(16, radius * 0.4)), 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
     ctx.lineWidth = 1;
     ctx.stroke();
 
     // Center point
     ctx.beginPath();
     ctx.arc(0, 0, 1.5, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
     ctx.fill();
 
     // Fine drafting crosshairs
     const arm = Math.max(14, Math.min(36, radius * 0.8));
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(-arm, 0); ctx.lineTo(-4, 0);
@@ -296,7 +296,7 @@ export class CanvasRenderer {
 
     // Clean label
     ctx.font = '500 11px Inter, -apple-system, sans-serif';
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
     ctx.textAlign = 'center';
     ctx.fillText('0, 0', 0, Math.max(18, radius * 0.5 + 14));
 
@@ -315,7 +315,7 @@ export class CanvasRenderer {
     const offsetY = (height / 2 - this.viewport.y * this.viewport.zoom) % step;
 
     ctx.save();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.04)';
     ctx.lineWidth = 1;
 
     ctx.beginPath();
@@ -338,7 +338,7 @@ export class CanvasRenderer {
 
     const start = this.viewport.worldToScreen(el.x + el.points[0], el.y + el.points[1]);
 
-    ctx.strokeStyle = el.color || '#ffffff';
+    ctx.strokeStyle = el.color || '#18181b';
     ctx.lineWidth = Math.max(1, el.width * this.viewport.zoom);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';

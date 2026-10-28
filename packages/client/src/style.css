@@ -1,8 +1,8 @@
 :root {
-  --bg-void: #0f1013;
-  --glass-bg: rgba(22, 23, 28, 0.75);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-highlight: rgba(255, 255, 255, 0.14);
+  --bg-void: #ffffff;
+  --glass-bg: rgba(22, 23, 28, 0.85);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-highlight: rgba(255, 255, 255, 0.16);
   --text-primary: #f3f4f6;
   --text-muted: #9ca3af;
   --accent: #6366f1;
@@ -13,7 +13,7 @@
   --radius-lg: 14px;
   --radius-md: 10px;
   --radius-sm: 6px;
-  --shadow-float: 0 12px 32px -4px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--glass-border);
+  --shadow-float: 0 16px 40px -6px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.08);
 }
 
 * {
